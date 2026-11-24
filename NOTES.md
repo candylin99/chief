@@ -65,6 +65,7 @@ git merge upstream/main
 ```
 
 （clone 里已配好 `upstream` = jinjin99/chief。）
+**合完一定检查 `.claude-plugin/marketplace.json`**：上游的清单把插件钉到 `jinjin99/chief` 的发版 tag（`git-subdir` + `ref`/`sha`），fork 这里改成了 `"source": "./plugin"`（装的就是 fork main 上的代码）。合并冲突或被覆盖时保留 fork 的写法，否则本机会悄悄装回上游的版本。上游的 `scripts/release.sh` 会把清单改回 tag 写法，fork 里不要用它发版。
 合完先看 `plugin/engine/` 和 `plugin/engine/src/migrate.ts` 的改动：版本号一升，本机装上就会自动换引擎、迁移数据文件，别手动动 `~/chief/data/app`。
 
 ## 本机换源记录（2026-11-24）
