@@ -5,6 +5,7 @@ import { msg } from "../messages";
 import { serviceState } from "../launchd";
 import { loadDispatch, loadReplies, loadThings, paths, readEvents, updateJson, type Ask, type Thing, type ThingsFile } from "../store";
 import { parseUntil } from "../snooze";
+import { STAGE_LABELS, parseStage } from "../shared/stage";
 import { recordDrop } from "../undo";
 import { eventById, hubAlive } from "./events";
 
@@ -84,17 +85,19 @@ export async function thing(args: string[]): Promise<void> {
   if (dueFlag !== null && dueFlag !== "none" && !/^\d{4}-\d{2}-\d{2}$/.test(dueFlag)) fail("--due 写成 YYYY-MM-DD，清掉写 none");
   const id = sub === "update" ? num(args.shift(), "事情号") : null;
   // 先读完标准输入，再拿锁：锁只在读改写那一下。
-  // 标准输入可以是一句进展，也可以是 JSON：{"progress": 做到哪了, "next": 下一步, "blocker": 卡在哪（空字符串 = 不卡了）, "result": 一条结果}。
+  // 标准输入可以是一句进展，也可以是 JSON：{"progress": 做到哪了, "next": 下一步, "blocker": 卡在哪（空字符串 = 不卡了）, "result": 一条结果,
+  // "stage": 阶段（方案中、开发中、提测、QA 用例评审、测试中……见 shared/stage.ts；空字符串 = 清掉）}。
   const raw = await stdinText();
-  let report: { progress?: string; next?: string; blocker?: string; result?: string } = {};
+  let report: { progress?: string; next?: string; blocker?: string; result?: string; stage?: string } = {};
   if (raw.startsWith("{")) {
     try {
       const j = JSON.parse(raw) as Record<string, unknown>;
-      for (const k of ["progress", "next", "blocker", "result"] as const) if (typeof j[k] === "string") report[k] = (j[k] as string).trim().slice(0, MAX_TEXT);
+      for (const k of ["progress", "next", "blocker", "result", "stage"] as const) if (typeof j[k] === "string") report[k] = (j[k] as string).trim().slice(0, MAX_TEXT);
     } catch {
-      fail("标准输入的 JSON 看不懂：{\"progress\", \"next\", \"blocker\", \"result\"}");
+      fail("标准输入的 JSON 看不懂：{\"progress\", \"next\", \"blocker\", \"result\", \"stage\"}");
     }
   } else if (raw) report = { progress: raw };
+  const stage = report.stage === undefined || report.stage === "" ? null : parseStage(report.stage) ?? fail(`阶段认不出：${oneLine(report.stage, 30)}（写 ${Object.values(STAGE_LABELS.zh).join("、")} 之一）`);
   plainOnly(titleText, "标题", { title: true });
   plainOnly(report.progress, "进展");
   plainOnly(report.next, "下一步");
@@ -110,7 +113,7 @@ export async function thing(args: string[]): Promise<void> {
         events: event !== null ? [event] : [], updatedAt: at, log: text ? [{ at, text }] : [], origin,
         ...(report.next ? { next: report.next } : {}), ...(report.blocker ? { blocker: report.blocker } : {}),
         ...(report.result ? { results: [report.result] } : {}), ...(dueFlag && dueFlag !== "none" ? { due: dueFlag } : {}),
-        ...(keys.length > 0 ? { keys } : {}), ...(session ? { session } : {}),
+        ...(keys.length > 0 ? { keys } : {}), ...(session ? { session } : {}), ...(stage ? { stage: { id: stage, at } } : {}),
       };
       t.things.push(x);
       return x.id;
@@ -156,6 +159,10 @@ export async function thing(args: string[]): Promise<void> {
       }
       if (dueFlag === "none") delete x.due;
       else if (dueFlag) x.due = dueFlag;
+      if (stage && stage !== x.stage?.id) {
+        x.stage = { id: stage, at };
+        x.log = [...x.log, { at, text: `阶段：${STAGE_LABELS.zh[stage]}` }].slice(-MAX_LOG);
+      } else if (report.stage === "") delete x.stage;
       x.updatedAt = at;
       return was === null ? null : { thing: { id: x.id, title: x.title }, was };
     });

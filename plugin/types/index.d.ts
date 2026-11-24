@@ -46,9 +46,25 @@ export type ThingRow = {
   origin?: 'chief' | 'import'
   // 稍后再说：until 之前不在进行中的列表里，到点引擎叫醒它。
   snooze?: { until: string; at: string }
+  // 汇报里写的阶段（engine/src/shared/stage.ts 的 id）。
+  stage?: { id: string; at: string }
   events: number[]
   updatedAt: string
   log: { at: string; text: string }[]
+}
+
+// links.json：事情关联的 Jira 单、PR 现在什么状态、从哪来的（引擎每 10 分钟查一次）。
+export type JiraLink = { key: string; title: string; status: string; category: string | null; type: string | null; parent?: string; url: string }
+export type PrLink = { ref: string; url: string; title: string; state: 'open' | 'merged' | 'closed'; draft: boolean; review: 'approved' | 'changes' | 'required' | null; ci: 'pass' | 'fail' | 'pending' | null }
+export type OriginLink = { source: string; label: string; url: string | null }
+export type LinksFile = {
+  at: string | null
+  jira: Record<string, JiraLink>
+  prs: Record<string, PrLink>
+  origins: Record<string, OriginLink>
+  messages: Record<string, string>
+  errors: Record<string, string>
+  jiraSite?: string | null
 }
 
 export type AskRow = {
@@ -162,6 +178,8 @@ export type Snapshot = {
   undo: UndoRow[]
   // 插件更新过、主会话还没重读规则（插件自己的存储里记着上次重读时的插件版本）。
   reread: boolean
+  // 事情关联的单子、PR 的状态和来处（links.json；引擎还没查过是空的）。
+  links: LinksFile
 }
 
 // 主会话一天用掉的额度（hooks/usage.ts 记）：five / week 是 5 小时、每周窗口涨了几个百分点（量到的加估的），

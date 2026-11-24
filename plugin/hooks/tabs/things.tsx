@@ -4,6 +4,7 @@ import type { EngineInterface as Engine, RenderChildren } from 'claude-code'
 
 import type { SearchHit, Snapshot, ThingRow } from '../../types'
 import { clearSearch, finish, openSession, search, setTab, snooze, tell, toggle, wake } from '../actions'
+import { stageBadge, tagsRow, thingStage } from '../tags'
 import { timeline } from './timeline'
 import { t as dict } from '../i18n'
 import { ago, annotateBox, annotateButton, awake, daysLeft, gist, live, md, short, snoozed, startOfToday, wakeLabel, type Els } from '../ui'
@@ -96,6 +97,7 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
     const isOpen = opened.includes(key)
     const more = opened.includes(`more-t${t.id}`)
     const c = chip(t)
+    const stage = thingStage(s, t)
     const fresh = live_(t)
     const l = latest(t)
     const block = (label: string, body: RenderChildren) => (
@@ -106,14 +108,19 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
     )
     return (
       <Box key={key} flexDirection="column" borderStyle="round" borderColor={c.hot ? c.color : 'inactive'} paddingX="md" paddingY="sm" gap="xs" marginTop="sm">
+        {/* 第一行：阶段、标题；右边是要你留意的状态（正常在做的、有阶段时不再写「在做」）和截止。 */}
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap="sm">
           <Box flexShrink={1}>
             <Button key={`tg${t.id}`} plain onPress={() => toggle($, key)}>
-              <Text size="caption" color={c.color} dimColor={c.color === undefined}>{c.label}{T.gap}</Text><Text weight="semibold">{short(t.title, 60)}</Text>
+              {stage ? stageBadge(ui, s, t) : <Text size="caption" color={c.color} dimColor={c.color === undefined}>{c.label}{T.gap}</Text>}<Text weight="semibold">{short(t.title, 60)}</Text>
             </Button>
           </Box>
-          {t.due ? <Text size="caption" dimColor>{w.dueOn(t.due)}</Text> : null}
+          {(stage && c.rank < 9) || t.due
+            ? <Text size="caption" wrap="truncate-end">{stage && c.rank < 9 && <Text color={c.color} dimColor={c.color === undefined}>{c.label}</Text>}{stage && c.rank < 9 && t.due ? ' · ' : ''}{t.due ? <Text dimColor>{w.dueOn(t.due)}</Text> : null}</Text>
+            : null}
         </Box>
+        {/* 第二行：从哪来、关联的需求和 PR，都能点开。 */}
+        {tagsRow($, ui, s, t)}
         {act(t)?.waiting
           ? <Text size="footnote" color="error" wrap="wrap"><Text dimColor>{w.asksYou}</Text>{act(t)!.waiting}</Text>
           : t.blocker
@@ -177,6 +184,9 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
 
   return (
     <Box flexDirection="column" marginTop="sm">
+      {Object.keys(s.links.errors).length > 0 && active.some(x => (x.keys ?? []).length > 0) && (
+        <Text size="caption" color="warning" wrap="wrap">{T.tags.linkErrors(Object.values(s.links.errors).join('；'))}</Text>
+      )}
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap="sm">
         <Text size="caption" dimColor>{w.summary(active.length, hot.length, done.length)}</Text>
         <Button key="progress" plain onPress={() => tell($, 'chief：问一遍各事情的最新进展', w.askProgress)}>{w.askAll}</Button>

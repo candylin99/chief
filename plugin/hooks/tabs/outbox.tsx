@@ -5,6 +5,7 @@ import { DEFAULT_PLACEMENT, DEFAULT_SIGNATURE, placementOf } from '../../engine/
 import type { ReplyRow, Snapshot } from '../../types'
 import { act, openImage, redo, send, setEdit, toggle } from '../actions'
 import { sourceName, t } from '../i18n'
+import { messageLink } from '../tags'
 import { md, short, whatOf, type Els } from '../ui'
 
 export function replyCard($: Engine, ui: Els, s: Snapshot, edit: Record<string, string>, opened: string[], r: ReplyRow) {
@@ -28,7 +29,10 @@ export function replyCard($: Engine, ui: Els, s: Snapshot, edit: Record<string, 
   ].filter(Boolean).join(' · ')
   return (
     <Box key={`r${r.id}`} flexDirection="column" gap="xs" marginTop="xs">
-      <Text wrap="wrap"><Text color={r.status === 'failed' ? 'error' : undefined}>✉ </Text><Text weight="semibold">{approve ? t().reply.approve(r.target.ref ?? '') : r.kind === 'message' ? t().reply.message(who) : t().reply.reply(who)}</Text><Text size="caption" dimColor>{t().gap}{meta}</Text></Text>
+      <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap="sm">
+        <Box flexShrink={1}><Text wrap="wrap"><Text color={r.status === 'failed' ? 'error' : undefined}>✉ </Text><Text weight="semibold">{approve ? t().reply.approve(r.target.ref ?? '') : r.kind === 'message' ? t().reply.message(who) : t().reply.reply(who)}</Text><Text size="caption" dimColor>{t().gap}{meta}</Text></Text></Box>
+        {r.kind !== 'message' && messageLink($, ui, s, r.event)}
+      </Box>
       {r.context.said !== '' && <Text size="footnote" dimColor wrap="truncate-end">{short(r.context.who ?? w.them, 16)}{t().colon}{short(r.context.said, 160)}</Text>}
       {r.status === 'failed' && <Text size="footnote" color="error" wrap="wrap">{w.notSent(r.error ?? t().noReason)}</Text>}
 

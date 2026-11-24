@@ -49,6 +49,8 @@ const DATA = {
   held: "held.json",
   // 能撤回的操作：不做了、只记下 / 忽略、跳过积下的（见 undo.ts）。
   undo: "undo.json",
+  // 事情关联的 Jira 单、PR 现在什么状态、从哪来的（引擎每 10 分钟查一次，见 links.ts）：面板画标签、阶段用。
+  links: "links.json",
 } as const;
 
 // 放在 top 的：你的规矩、可调的数字和开关（见 config.ts）、chief export 导出的备份。

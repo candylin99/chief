@@ -10,6 +10,7 @@ import { markReread } from '../data'
 import { inboxOf, type Card, type SysItem } from '../inbox'
 import { sourceName, t } from '../i18n'
 import { RELOAD_SKILL, ago, dueLabel, listify, replyGist, short, splitAsk, startOfToday, whatOf, type Els } from '../ui'
+import { stageBadge, tagsRow } from '../tags'
 import { replyCard, sendingRow } from './outbox'
 
 export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], edit: Record<string, string> = {}) {
@@ -107,13 +108,14 @@ export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], e
     return (
       <Box key={id} flexDirection="column" gap="sm" marginTop="md" borderStyle="round" borderColor={c.rank <= 1 ? 'error' : 'inactive'} paddingX="md" paddingY="sm">
         <Box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap="sm">
-          <Box flexDirection="column" flexShrink={1}>
-            <Text weight="semibold" wrap="wrap">{title}</Text>
+          <Box flexDirection="column" flexShrink={1} gap="xs">
+            <Text weight="semibold" wrap="wrap">{th && stageBadge(ui, s, th)}{title}</Text>
             <Text size="caption" wrap="wrap">
               {due && <Text color={due.color} dimColor={due.color === undefined}>{due.text}</Text>}
               {due && counts ? ' · ' : ''}
               {counts && <Text color="warning">{counts}</Text>}
             </Text>
+            {th && tagsRow($, ui, s, th)}
           </Box>
           {c.session && <Button key={`oa-${c.key}`} plain onPress={() => openSession($, c.session ?? '', title)}>{w.goSession}</Button>}
         </Box>

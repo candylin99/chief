@@ -468,6 +468,34 @@ describe("策略能自己加、approve、进度表", () => {
     expect(t.results).toEqual(["[报告](https://x)"]);
     expect(chiefFails(h, "thing", "update", id, "--due", "明天")).toContain("YYYY-MM-DD");
   });
+
+  it("阶段：汇报里写中文就认，变了记一笔，空字符串清掉，认不出的报错", () => {
+    const h = home();
+    const id = run(h, JSON.stringify({ progress: "开始写方案", stage: "方案中" }), "thing", "add", "--title", "PROJ-7 保修").trim();
+    let t = JSON.parse(chief(h, "thing", "list"))[0];
+    expect(t.stage.id).toBe("design");
+    run(h, JSON.stringify({ stage: "QA 用例评审" }), "thing", "update", id);
+    t = JSON.parse(chief(h, "thing", "list"))[0];
+    expect(t.stage.id).toBe("casereview");
+    expect(t.log.at(-1).text).toBe("阶段：QA 用例评审");
+    run(h, JSON.stringify({ stage: "" }), "thing", "update", id);
+    expect(JSON.parse(chief(h, "thing", "list"))[0].stage).toBeUndefined();
+  });
+
+  it("阶段写错了：说清能写哪些", () => {
+    const h = home();
+    const id = run(h, "x", "thing", "add", "--title", "PROJ-8 退货页").trim();
+    const err = (() => {
+      try {
+        run(h, JSON.stringify({ stage: "快好了" }), "thing", "update", id);
+        return "";
+      } catch (e) {
+        return String((e as { stderr?: string }).stderr ?? e);
+      }
+    })();
+    expect(err).toContain("阶段认不出");
+    expect(err).toContain("方案中");
+  });
 });
 
 describe("Slack 给自己发的话", () => {

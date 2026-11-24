@@ -15,6 +15,9 @@ import { scrubTokens } from "./scrub";
 import { wakeDue } from "./snooze";
 import { KeychainStore, type SecretStore } from "./secrets";
 import { keysOf } from "./keys";
+import { EMPTY_LINKS, collectLinks, siteFromEvents } from "./links";
+import { findGh, ghRunner } from "./sources/github";
+import { findJiraCli, type JiraCli } from "./sources/jira";
 import { DATA_HEALTH } from "./shared/rules";
 import { DIGEST_LABELS, dueDigests, type DigestTimes } from "./shared/schedule";
 import { SOURCE_LABELS, type SourceId } from "./shared/sources";
@@ -22,7 +25,8 @@ import { SlackPlugin, SLACK_COOKIE_D, sentThreadKey, type SlackAttribution } fro
 import type { ChannelStatus, InboundMessage } from "./slack/types";
 import { DESCRIPTORS, SOURCES, descriptorOf } from "./sources/registry";
 import type { Source, SourceItem } from "./sources/types";
-import { appendEvent, ensureHome, loadCorrupt, loadDispatch, loadEnabled, readEvents, readJson, loadPolicy, loadState, placementOf, paths, saveState, updateReplies, withLock, writeJson, type Enabled, type EngineState, type ChiefEvent, type Reply, type SourceHealth } from "./store";
+import { appendEvent, ensureHome, loadCorrupt, loadDispatch, loadEnabled, loadReplies, loadSettings, loadThings, readEvents, readJson, loadPolicy, loadState, placementOf, paths, saveState, updateReplies, withLock, writeJson, type Enabled, type EngineState, type ChiefEvent, type Reply, type SourceHealth } from "./store";
+import type { LinksFile } from "./shared/types";
 
 // 拉外部来源的间隔、第一次连上往回看多久：config.json 的 pollMinutes（默认 5 分钟）、firstLookbackHours（默认一天）。
 const pollMs = () => config().pollMinutes * 60_000;
@@ -61,6 +65,8 @@ const HEALTH_MS = 60_000;
 const ARCHIVE_MS = 24 * 3600_000;
 // 稍后再说的事情多久看一次到点没有。
 const WAKE_MS = 60_000;
+// 事情关联的 Jira 单、PR 多久查一次状态（见 links.ts）。
+const LINKS_MS = 10 * 60_000;
 
 // 漏掉的消息：交出去（firstSeen 记着引擎第一次看到它没判断的时间）过了 missedMs 还没判断。演练消息和提醒本身不算。
 export function missedEvents(events: readonly ChiefEvent[], handled: Record<string, unknown>, firstSeen: Map<number, number>, now: number, after = missedMs()): ChiefEvent[] {
@@ -255,6 +261,10 @@ export class Engine {
   private healthTimer: NodeJS.Timeout | null = null;
   private archiveTimer: NodeJS.Timeout | null = null;
   private wakeTimer: NodeJS.Timeout | null = null;
+  private linksTimer: NodeJS.Timeout | null = null;
+  private linking = false;
+  // 查 Jira 单状态用的命令行和站点（第一次查时认出来，没认出来下次再试）。
+  private jiraCli: { cli: JiraCli; site: string } | null = null;
   // 每个来源最近一次收 / 拉的结果，跟心跳一起写进 engine.json，面板拿它把连不上的来源标红。
   private readonly health: Record<string, SourceHealth> = {};
   private readonly startedAt = Date.now();
@@ -323,6 +333,47 @@ export class Engine {
     // 稍后再说的事情到点了就叫醒（起来时先看一次：关机时到点的也补上）。
     this.wakeSnoozed();
     this.wakeTimer = setInterval(() => this.wakeSnoozed(), WAKE_MS);
+    // 关联的单子、PR 的状态：起来先查一次，之后每 10 分钟。
+    void this.refreshLinks();
+    this.linksTimer = setInterval(() => void this.refreshLinks(), LINKS_MS);
+  }
+
+  // 查一轮事情关联的 Jira 单、PR 的状态和来处，写进 links.json（面板画标签、阶段用）。出错只记日志，不影响别的。
+  async refreshLinks(): Promise<void> {
+    if (this.linking) return;
+    this.linking = true;
+    try {
+      if (this.enabled.jira && this.jiraCli === null) {
+        const cli = findJiraCli();
+        if (cli) {
+          try {
+            const { site } = await cli.status(this.abort.signal);
+            if (site) this.jiraCli = { cli, site };
+          } catch {
+            // 没登录：这一轮 Jira 查不成（collectLinks 记进 errors），下一轮再认。
+          }
+        }
+      }
+      const gh = this.enabled.github ? findGh() : null;
+      const events = readEvents();
+      const byId = new Map(events.map((e) => [e.id, e]));
+      const eventOf = (id: number) => byId.get(id) ?? archivedEvent(id);
+      const prev = { ...EMPTY_LINKS, ...readJson<Partial<LinksFile>>(paths().links, {}) };
+      const out = await collectLinks(loadThings().things, loadReplies().items, eventOf, {
+        jira: this.jiraCli,
+        gh: gh ? ghRunner(gh) : null,
+        slackWorkspace: loadSettings().slackWorkspace ?? null,
+        site: this.jiraCli?.site ?? siteFromEvents(events),
+      }, prev, this.abort.signal);
+      if (this.enabled.jira && this.jiraCli === null && Object.keys(out.jira).length === 0 && !out.errors.jira) out.errors.jira = "acli 没登录 Jira，到终端里跑 acli jira auth login --web";
+      writeJson(paths().links, out);
+      const errs = Object.entries(out.errors).map(([k, v]) => `${k}：${v}`).join("；");
+      log(`[links] 单子 ${Object.keys(out.jira).length} 张、PR ${Object.keys(out.prs).length} 个${errs ? `；没查成：${errs}` : ""}`);
+    } catch (error) {
+      if (!this.abort.signal.aborted) log(`[links] 查关联的单子、PR 没成：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.linking = false;
+    }
   }
 
   // 叫醒到点的事情：弹个通知，再交给主会话一条 thing.woke（它重新跟进、告诉你）。测试直接调。
@@ -420,6 +471,7 @@ export class Engine {
     if (this.healthTimer) clearInterval(this.healthTimer);
     if (this.archiveTimer) clearInterval(this.archiveTimer);
     if (this.wakeTimer) clearInterval(this.wakeTimer);
+    if (this.linksTimer) clearInterval(this.linksTimer);
     this.sessionWatcher?.close();
     this.abort.abort();
     await this.slack?.stop();

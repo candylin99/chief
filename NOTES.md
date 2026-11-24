@@ -68,6 +68,23 @@ git merge upstream/main
 **合完一定检查 `.claude-plugin/marketplace.json`**：上游的清单把插件钉到 `jinjin99/chief` 的发版 tag（`git-subdir` + `ref`/`sha`），fork 这里改成了 `"source": "./plugin"`（装的就是 fork main 上的代码）。合并冲突或被覆盖时保留 fork 的写法，否则本机会悄悄装回上游的版本。上游的 `scripts/release.sh` 会把清单改回 tag 写法，fork 里不要用它发版。
 合完先看 `plugin/engine/` 和 `plugin/engine/src/migrate.ts` 的改动：版本号一升，本机装上就会自动换引擎、迁移数据文件，别手动动 `~/chief/data/app`。
 
+## fork 自己加的功能
+
+### 0.4.1：事项卡上的阶段和标签（2026-11-24）
+
+- **标签行**（`hooks/tags.tsx`）：「进度」页每件事、「要你」页每张事情卡的标题下面一行，都能点：
+  - 从哪来：这件事最早那条消息（Slack 拼出消息链接，Jira / GitHub 用原地址，会话的点了跳到会话）。
+  - 需求：挂的 Jira 单，子任务自动换成父需求，显示 Jira 状态。
+  - PR：草稿 / 待 review / 要改 / 已 approve / 已合并，开着的带 CI（✓ / ✗ CI / … CI）。
+  - 「要你」页的回复卡上多一个「原消息 ↗」。
+  - 只打开 Slack / Atlassian / GitHub / Notion 的 https 地址（`actions.ts` 的 `openUrl`）。
+- **阶段**（`engine/src/shared/stage.ts`）：标题前的 `[开发中]` 这种。来源两个：
+  - 需求的 Jira 状态换算：OPEN→待开始、Under development→开发中、Test In Progress→测试中、Acceptance Check→验收中、Ready To Deploy→待发布、Test In Production→线上验证、Released→已发布、ON HOLD→暂停、Closed/Resolved→完成。
+  - 工作会话汇报「阶段：…」（`chief thing update T` 标准输入 JSON 的 `stage`）：方案中、QA 用例评审这些 Jira 上看不出（都还是 OPEN），Jira 在待开始 / 开发中时用汇报的。
+  - 改词表、映射：改 `stage.ts` 的 `STAGES`、`STAGE_LABELS`、`JIRA`、`ALIASES`，测试在 `engine/test/links.spec.ts`。
+- **状态从哪来**（`engine/src/links.ts`）：引擎起来查一次、之后每 10 分钟，用 acli（Jira）和 gh（GitHub）查没办完的事情挂的单子和 PR，写进 `~/chief/data/links.json`，面板读它。查不成（比如 acli 没登录）时接着用上一轮的，进度页顶上一行黄字说为什么。
+- hub 的派活模板（`skills/hub/handoff.md`）和「chief 进展」的处理（`SKILL.md`）加了「阶段」。
+
 ## 本机换源记录（2026-11-24）
 
 - `~/.claude/settings.json` → `extraKnownMarketplaces.chief.source.repo` = `candylin99/chief`（原 `jinjin99/chief`）。

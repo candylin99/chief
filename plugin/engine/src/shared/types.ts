@@ -2,6 +2,7 @@
 // 面板的类型合同 plugin/types/index.d.ts 不能 import（validate 要它自成一体），那边照抄一份；
 // test/contract.spec.ts 检查这里的每个类型都能当成面板那份用，改了这里、面板那份没跟上，类型检查就过不了。
 import type { EventSource, Scenario } from "./sources";
+import type { Stage } from "./stage";
 
 // ── 事件 ──
 
@@ -125,9 +126,56 @@ export interface Thing {
   origin?: "chief" | "import";
   // 稍后再说：until 之前不在面板的进行中列表里（它的问题也先收起）；到点引擎叫醒它（去掉这一项，状态不变），交给主会话一条 thing.woke。
   snooze?: { until: string; at: string };
+  // 汇报里写的阶段（方案中、开发中、QA 用例评审……，见 shared/stage.ts）：Jira 上看不出的那几步靠它。
+  stage?: { id: Stage; at: string };
   updatedAt: string;
   // 进展的历史，新的在后，只留最近的。
   log: { at: string; text: string }[];
+}
+
+// ── 关联的单子和 PR（links.json，引擎查、面板读）──
+
+// Jira 单：现在的状态；子任务带着父单（需求）的键。
+export interface JiraLink {
+  key: string;
+  title: string;
+  status: string;
+  // Jira 的状态大类：new（没开始）、indeterminate（进行中）、done。
+  category: string | null;
+  type: string | null;
+  parent?: string;
+  url: string;
+}
+
+// PR：开着 / 合了 / 关了，草稿，review 结论，CI。
+export interface PrLink {
+  ref: string;
+  url: string;
+  title: string;
+  state: "open" | "merged" | "closed";
+  draft: boolean;
+  review: "approved" | "changes" | "required" | null;
+  ci: "pass" | "fail" | "pending" | null;
+}
+
+// 一件事从哪来的：第一条消息的来源和能点开的地址（Slack 拼出消息链接，会话没有地址）。
+export interface OriginLink {
+  source: string;
+  label: string;
+  url: string | null;
+}
+
+export interface LinksFile {
+  at: string | null;
+  // 工单号 → 单子；PR 的键（github.com/owner/repo/pull/N）→ PR；事情号 → 来处；消息号 → 地址（回复卡上「原消息」用）。
+  jira: Record<string, JiraLink>;
+  prs: Record<string, PrLink>;
+  origins: Record<string, OriginLink>;
+  messages: Record<string, string>;
+  // 这一轮查不成的来源 → 为什么（没登录之类），面板上的标签照常显示、只是没状态。
+  errors: Record<string, string>;
+  // Jira 站点（aftership.atlassian.net）：Jira 没登录、单子没查到时，面板照样能拼出单子的链接。
+  jiraSite?: string | null;
 }
 
 export interface Ask {
