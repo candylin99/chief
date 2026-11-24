@@ -73,4 +73,5 @@ git merge upstream/main
 - `~/.claude/settings.json` → `extraKnownMarketplaces.chief.source.repo` = `candylin99/chief`（原 `jinjin99/chief`）。
 - `claude plugin marketplace update chief` 已重新 clone 到 `~/.claude/plugins/marketplaces/chief`，HEAD = fork main（0.2.1）。
 - 已装插件缓存、`~/chief` 用户数据、引擎服务都没动。
+- 同日升级到 0.4.0（合并上游 `0fd9971`）：升级前把 `~/chief` 备份到 `~/chief-backup-20261124`（不含 node_modules）；面板加载后引擎自动换成 0.4.0，数据文件迁移到 `version: 1`，事项、回复数量不变。中途清单还钉着上游 tag，先装了一次上游 0.3.0（引擎也被自动换成过 0.3.0），所以 `app.prev` 里是 0.3.0 的引擎，不是 0.2.1。
 - 上游曾重写历史：本机装的 commit `71e0c0e` 在新历史里对应 `023868a`，唯一差异是示例文案（上游把示例里的真实名字/单号洗掉了，如 `OPS-35121`→`PERF-35121`、`jk.yuan`→`bob.lee`），代码功能一致。
