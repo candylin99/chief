@@ -4,6 +4,7 @@
 // gabriel-slack 管连接、重连、令牌刷新、事件 hydration（人名频道名解析）。
 // 这里只做：收事件 → 判断跟你有没有关系 → 交给 host。
 
+import { readFileSync } from "node:fs";
 import type { ChannelContext, ChannelPlugin, SecretCheck, SecretSpec } from "./types";
 import { scrubTokens } from "./api";
 import { classifyCreated, classifyDeleted, classifyUpdated, directOf, type Classified, type GabrielChannel, type GabrielDeleteEvent, type GabrielMessageEvent } from "./classify";
@@ -50,6 +51,36 @@ export interface GabrielClientLike {
   // 按编号查人名（查 @ 了谁用）；老的假客户端没有。
   readonly users?: { resolve(ids: string[]): Promise<Array<{ id: string; name?: string; displayName?: string; handle?: string } | null>> };
   reactions: { add(opts: { channel: string; ts: string; emoji: string }): Promise<void> };
+  // 传图（回复附图用）：传完分享到 channel（有 threadTs 就进那个 thread）。老的假客户端没有。
+  readonly files?: { upload(opts: { filename: string; content: Uint8Array; mimeType?: string; channel?: string; threadTs?: string }): Promise<unknown> };
+}
+
+// 发出去落在哪：附的图跟着正文发到同一个对话、同一个 thread。
+export interface SentTo {
+  ref: string;
+  channel: string;
+  // 正文这条消息自己的 ts。
+  ts: string;
+  // 正文发在哪个 thread 里；正文是对话里的顶层消息就没有。
+  threadTs?: string;
+  // 私信、群聊（不是频道）：正文直接回在对话里时，图紧跟在下面就和正文在一起，不用进 thread。
+  direct?: boolean;
+}
+
+// 附的图发进哪个 thread（没有就是对话里的顶层）：
+//   - 正文在 thread 里（回别人的 thread、回到 thread、发到帖子的 thread）：图进同一个 thread。
+//   - 正文是频道里的顶层消息（发到频道的新消息、直接回在频道里）：图进正文自己的 thread。
+//     不然图成了频道里单独的几条，和正文之间可能插进别人的话，thread 视图里也看不到。
+//   - 私信、群聊里直接回在对话里的：图紧跟在正文下面，照旧顶层。
+export function imageThreadOf(to: SentTo): string | undefined {
+  return to.threadTs ?? (to.direct ? undefined : to.ts);
+}
+
+// 正文落在哪个 thread，写法和收消息时 classify 算的 threadKey 一样。chief 替你发出去以后登记成「你在的 thread」，
+// 别人在下面回复才会当成「我在的 thread 有后续」交给消息中心（chief 自己发的那条回显被当成自己发的挡掉了，走不到登记那一步）。
+export function sentThreadKey(to: SentTo): string {
+  if (to.direct) return to.threadTs ? `slack:${to.channel}:${to.threadTs}` : `slack:${to.channel}:dm`;
+  return `slack:${to.channel}:${to.threadTs ?? to.ts}`;
 }
 
 export interface CheckCookieResult {
@@ -63,9 +94,11 @@ export interface SlackPluginOptions {
   // gabriel-slack 记「每个对话收到哪了」的目录（state.json，只有时间戳，不含密钥）。
   // 给了的话，引擎重启后会把停着那段时间漏掉的消息补回来；不给就只在内存里记。
   stateDir?: string;
+  // 连上以后补收最近多久的私信、群聊（毫秒），默认 DM_CATCH_UP_MS；config.json 的 slackCatchUpHours。
+  catchUpMs?: number;
 }
 
-// 连上以后补收最近这么久的私信、群聊（收过的按编号自动跳过）。
+// 连上以后补收最近这么久的私信、群聊（收过的按编号自动跳过）。默认值，可以用 catchUpMs 改。
 export const DM_CATCH_UP_MS = 48 * 60 * 60 * 1000;
 const DM_CATCH_UP_MAX_CONVERSATIONS = 40;
 
@@ -157,7 +190,7 @@ export class SlackPlugin implements ChannelPlugin {
         context.log("重连中");
       }) as never);
       client.on("auth.dead", (((e: { reason: string }) => {
-        context.status({ state: "error", error: `Cookie 已失效：${scrubTokens(e.reason, [cookieD])}，请重新登录` });
+        context.status({ state: "error", error: `Cookie 已失效：${scrubTokens(e.reason, [cookieD])}，请重新登录`, dead: true });
         context.log(`Cookie 失效：${scrubTokens(e.reason, [cookieD])}`);
       }) as never));
       client.onError((err) => {
@@ -190,7 +223,7 @@ export class SlackPlugin implements ChannelPlugin {
 
   // 主动发一条新消息：to 是用户编号（U…）、邮箱、或频道编号（C… / G… / D…）。发给人就先打开和他的私信。
   // threadTs：发到频道里某条帖子的 thread 里（别人的帖子也行）。attribution：正文上方的署名行（不给就不加）。
-  async sendNew(to: string, text: string, threadTs?: string, attribution: SlackAttribution = false): Promise<{ ref: string }> {
+  async sendNew(to: string, text: string, threadTs?: string, attribution: SlackAttribution = false): Promise<SentTo> {
     const client = this.client;
     if (!client?.core) throw new Error("Slack 还没连上");
     let channel = to;
@@ -205,18 +238,36 @@ export class SlackPlugin implements ChannelPlugin {
       channel = opened.channel.id;
     }
     const res = await client.chat.send({ channel, markdown: text, ...(threadTs ? { threadTs } : {}), attribution });
-    return { ref: `${res.channel}:${res.ts}` };
+    return { ref: `${res.channel}:${res.ts}`, channel: res.channel, ts: res.ts, ...(threadTs ? { threadTs } : {}), ...(channel.startsWith("D") ? { direct: true } : {}) };
   }
 
   // 在一条消息所在的线程里回一句，以你本人的身份。target 是那条消息交来时的 replyTarget；text 原样发。
   // inThread：回到对方那条消息的 thread 里；否则直接回在对话里（放哪由引擎按规矩定）。attribution：正文上方的署名行（不给就不加）。
-  async send(target: Readonly<Record<string, string>>, text: string, inThreadOf = true, attribution: SlackAttribution = false): Promise<{ ref: string }> {
+  async send(target: Readonly<Record<string, string>>, text: string, inThreadOf = true, attribution: SlackAttribution = false): Promise<SentTo> {
     const client = this.client;
     if (!client) throw new Error("Slack 还没连上");
     const channel = target.channel!;
     const inThread = target.thread_ts ?? (inThreadOf ? target.ts : undefined);
     const res = await client.chat.send({ channel, markdown: text, ...(inThread ? { threadTs: inThread } : {}), attribution });
-    return { ref: `${res.channel}:${res.ts}` };
+    const direct = target.audience ? target.audience !== "channel" : channel.startsWith("D");
+    return { ref: `${res.channel}:${res.ts}`, channel: res.channel, ts: res.ts, ...(inThread ? { threadTs: inThread } : {}), ...(direct ? { direct: true } : {}) };
+  }
+
+  // 图要和正文在一起，发到哪由 imageThreadOf 定。返回没发上的（名字和原因）；全发上了是空的。
+  // 一张一条：gabriel-slack 的 files.upload 一次只分享一个文件，几张合成一条要它支持了才行。
+  async sendImages(to: SentTo, images: readonly { file: string; name: string; mime: string }[]): Promise<string[]> {
+    const files = this.client?.files;
+    if (!files) return images.map((i) => `${i.name}：这个 Slack 连接传不了文件`);
+    const threadTs = imageThreadOf(to);
+    const failed: string[] = [];
+    for (const img of images) {
+      try {
+        await files.upload({ filename: img.name, content: readFileSync(img.file), mimeType: img.mime, channel: to.channel, ...(threadTs ? { threadTs } : {}) });
+      } catch (error) {
+        failed.push(`${img.name}：${error instanceof Error ? error.message.slice(0, 120) : String(error)}`);
+      }
+    }
+    return failed;
   }
 
   // ── 收消息 ──
@@ -270,11 +321,13 @@ export class SlackPlugin implements ChannelPlugin {
     return ch;
   }
 
-  // 连上以后：把最近 48 小时的私信、群聊从历史里补收一遍。引擎停着、断网时别人发的私信不会丢；
+  // 连上以后：把最近 48 小时（catchUpMs）的私信、群聊从历史里补收一遍。引擎停着、断网时别人发的私信不会丢；
   // 收过的消息编号一样，记账时自动跳过。按时间先后交，好让后面的判断看到前因。
   private async catchUpDirect(client: GabrielClientLike, ctx: ChannelContext): Promise<void> {
     if (!client.core || !client.channels) return;
-    const since = (Date.now() - DM_CATCH_UP_MS) / 1000;
+    const window = this.options.catchUpMs ?? DM_CATCH_UP_MS;
+    if (window <= 0) return;
+    const since = (Date.now() - window) / 1000;
     let counts: Record<string, unknown>;
     try {
       counts = (await client.core.callWebApi("client.counts", {}, { reason: "chief-dm-catch-up" })) as Record<string, unknown>;

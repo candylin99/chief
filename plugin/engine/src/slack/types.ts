@@ -47,7 +47,8 @@ export interface InboundMessage {
 export type ChannelStatus =
   | { state: "connecting" }
   | { state: "connected"; account: string }
-  | { state: "error"; error: string };
+  // dead：登录失效了（auth.dead），要你重新登录；别的错（连不上）会自己重试。
+  | { state: "error"; error: string; dead?: boolean };
 
 // 插件要的一个密钥。存在钥匙串里，名字是 chief:<channel>.<name>。
 export interface SecretSpec {

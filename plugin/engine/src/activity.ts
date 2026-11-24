@@ -16,8 +16,6 @@ export interface SessionActivity {
   saidAt: string | null;
   // 会话弹了问你的对话框、还没回答：问的是什么（没有就是 null）。
   waiting: string | null;
-  // 最后一个还没结果的工具（没有就是 null）：对话记录一直不动，就当它在等你点同意。
-  stuck?: string | null;
   title: string;
   // 会话最后说的一段话（截短）。
   last: string;
@@ -97,32 +95,6 @@ function tailLines(cwd: string, cliSessionId: string): Line[] {
 // 会话是不是停在问你的对话框上：最后一个「问你」（AskUserQuestion）还没有回答。返回问题。
 // 就算是 bypass 模式，App 也会弹框等你点 Allow 的工具：开新会话。
 const NEEDS_ALLOW = new Set(["mcp__ccd_session__start_session"]);
-
-// 本来就会跑很久的工具（子代理、工作流）：停着不说明在等你。
-const LONG_RUNNING = new Set(["Agent", "Task", "Workflow", "TaskOutput"]);
-// 有工具一直没结果、对话记录这么久没动：多半弹了要你点同意的框（不管是哪种框）。
-export const STALL_MS = 5 * 60_000;
-
-// 最后一个还没结果的工具：给人看的名字（有说明就带上说明，不带命令原文）。
-export function stuckTool(lines: Line[]): string | null {
-  const answered = new Set<string>();
-  for (let i = lines.length - 1; i >= 0; i--) {
-    for (const c of parts(lines[i]!)) {
-      if (c.type === "tool_result" && c.tool_use_id) answered.add(c.tool_use_id);
-      // 只认对话里助手发出的调用（对话记录里还有别的行会抄一份请求，不算）。
-      if (c.type !== "tool_use" || lines[i]!.type !== "assistant" || !c.id || answered.has(c.id) || LONG_RUNNING.has(c.name ?? "")) continue;
-      const what = (c.input?.description ?? c.input?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
-      return `${c.name ?? "工具"}${what ? `：${what}` : ""}`;
-    }
-    // 往前读到你打的一句话就停（只装着工具结果的 user 行不算）：再往前是上一轮的事。
-    if (lines[i]!.type === "user" && !parts(lines[i]!).some((c) => c.type === "tool_result")) break;
-  }
-  return null;
-}
-
-export function stallText(stuck: string): string {
-  return `它停在「${stuck}」上超过 ${STALL_MS / 60_000} 分钟没动了，可能在等你点同意`;
-}
 
 export function waitingQuestion(lines: Line[]): string | null {
   const answered = new Set<string>();
@@ -217,16 +189,16 @@ export function syncActivity(): SessionUpdate[] {
     if (!at) continue;
     const old = id === "_hub" ? undefined : before[id];
     const cli = rec.lastAssistantCliSessionId ?? rec.cliSessionId;
-    const { size, mtime } = cli && rec.cwd ? transcriptStat(rec.cwd, cli) : { size: 0, mtime: 0 };
-    const same = old !== undefined && old.at === at && old.size === size && old.stuck !== undefined;
+    const { size } = cli && rec.cwd ? transcriptStat(rec.cwd, cli) : { size: 0 };
+    // 旧版记过 stuck（按「工具几分钟没结果」猜的等你点，已经不猜了）：重读一遍，别把旧的误报留着。
+    const same = old !== undefined && old.at === at && old.size === size && !("stuck" in old);
     const said = same ? { text: old.last, at: old.saidAt ?? null } : cli && rec.cwd ? lastAssistantText(rec.cwd, cli) : { text: "", at: null };
     const lines = same || !cli || !rec.cwd ? null : tailLines(rec.cwd, cli);
-    const asked = lines ? waitingQuestion(lines) : old?.waiting && old.waiting !== stallText(old.stuck ?? "") ? old.waiting : null;
-    const stuck = lines ? stuckTool(lines) : old?.stuck ?? null;
-    // 认得的框（问你、开新会话）直接算；别的工具停着不动够久了，也算在等你。
-    const waiting = asked ?? (stuck && mtime > 0 && Date.now() - mtime >= STALL_MS ? stallText(stuck) : null);
+    // 只认会话真的停在你面前的框：问你的问题（AskUserQuestion）、开新会话等你点 Allow。
+    // 别的要你拍板的，由会话自己发「chief 要你定」给主会话，不从「命令多久没结果」去猜。
+    const waiting = lines ? waitingQuestion(lines) : old?.waiting ?? null;
     next[id] = {
-      at, size, saidAt: said.at, waiting, stuck, title: rec.title ?? "", permissionMode: rec.permissionMode ?? null, archived: rec.isArchived === true,
+      at, size, saidAt: said.at, waiting, title: rec.title ?? "", permissionMode: rec.permissionMode ?? null, archived: rec.isArchived === true,
       last: said.text,
     };
     // 刚开始等你回答：马上交出去（不管上面那段话有没有变）。

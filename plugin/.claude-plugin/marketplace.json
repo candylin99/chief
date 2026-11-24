@@ -1,0 +1,7 @@
+{
+  "name": "chief-dev",
+  "owner": { "name": "jinjin99" },
+  "plugins": [
+    { "name": "chief", "source": "./", "description": "chief 开发版：直接读这个目录，改了 /reload-plugins 就生效" }
+  ]
+}

@@ -1,0 +1,33 @@
+# 每次推送、每个 PR：跑测试。
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: plugin/engine/package-lock.json
+      - name: 引擎测试
+        working-directory: plugin/engine
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+      - name: 插件检查和面板测试
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate plugin
+          claude plugin test plugin

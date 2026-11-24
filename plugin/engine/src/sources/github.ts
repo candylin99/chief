@@ -5,12 +5,16 @@
 // 写（PR / issue 上评论）只在你对消息中心说了「发 N」之后由 `chief reply send` 调用。
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { config } from "../config";
+import { keysOf } from "../keys";
 import { runProgram } from "../program";
+import { SOURCE_META } from "../shared/sources";
 import type { SecretCheck } from "../slack/types";
-import { SourceError, escapeRe, plain, type Ask, type Source, type SourceItem } from "./types";
+import { SourceError, escapeRe, plain, type Ask, type Source, type SourceDescriptor, type SourceItem } from "./types";
 
 const GH_PATHS = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"];
-const MAX_ITEMS = 50;
+// 每次最多拉几条：config.json 的 items.github（默认 50）。
+const maxItems = () => config().items.github;
 const MAX_COMMENTS = 5;
 // PR 的 review 按时间从旧到新给、不能按时间筛：一页 100 条，最多翻这么多页（每条代码行评论的回复也算一个 review）。
 const MAX_REVIEW_PAGES = 5;
@@ -131,7 +135,7 @@ export class GitHubSource implements Source {
     const requested = new Set<string>();
     for (const q of queries) {
       try {
-        const raw = await this.gh(["api", "-X", "GET", "search/issues", "-f", `q=${q}`, "-f", "sort=updated", "-f", "order=desc", "-f", `per_page=${MAX_ITEMS}`], signal);
+        const raw = await this.gh(["api", "-X", "GET", "search/issues", "-f", `q=${q}`, "-f", "sort=updated", "-f", "order=desc", "-f", `per_page=${maxItems()}`], signal);
         for (const it of (JSON.parse(raw) as { items?: SearchItem[] }).items ?? []) {
           if (Date.parse(it.updated_at) > since.getTime()) found.set(it.html_url, it);
           if (q.startsWith("review-requested")) requested.add(it.html_url);
@@ -265,3 +269,35 @@ export class GitHubSource implements Source {
   }
 
 }
+
+function local(bots?: () => readonly string[]): GitHubSource | null {
+  const gh = findGh();
+  return gh ? new GitHubSource(ghRunner(gh), bots) : null;
+}
+
+function need(): GitHubSource {
+  const s = local();
+  if (!s) throw new Error("没找到 gh");
+  return s;
+}
+
+export const github: SourceDescriptor = {
+  id: "github",
+  meta: SOURCE_META.github,
+  local: () => local(),
+  build: async ({ bots }) => local(bots) ?? "没找到 gh",
+  event: (item) => ({ key: keysOf(item.url)[0] ?? item.url, reply: { ref: `${String(item.payload.repo)}#${String(item.payload.number)}` } }),
+  comment: async (target, body, signal) => ({ url: (await need().comment(target.ref ?? "", body, signal)).url }),
+  approve: async (ref, body, signal) => ({ url: (await need().approve(ref, body, signal)).url }),
+  async connect({ signal }) {
+    const s = local();
+    if (!s) throw new Error("没找到 gh：brew install gh，再 gh auth login");
+    return { checks: await s.check(signal) };
+  },
+  open: {
+    rank: 2,
+    list: async (signal) => (await need().open(signal)).map((it) => ({
+      key: keysOf(it.url)[0] ?? it.url, title: `${it.ref} ${it.title}`, state: it.mine ? "我开的 PR" : "等我 review", url: it.url, updated: it.updated,
+    })),
+  },
+};

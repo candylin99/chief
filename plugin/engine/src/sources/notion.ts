@@ -1,8 +1,10 @@
 // 照搬 aide 的 engine/src/sources/notion.ts（只留拉动态）。
 // Notion：用 Notion 的集成令牌（存在钥匙串里）。只看得到你在 Notion 里分享给这个集成的页面。
 // 拉 since 之后改过的页面，和它们上面的新评论。只读：只发 GET 和搜索。
+import { isStorableSecret } from "../secrets";
+import { SOURCE_META } from "../shared/sources";
 import type { SecretCheck } from "../slack/types";
-import { SourceError, getJson, plain, type Source, type SourceItem } from "./types";
+import { SourceError, getJson, plain, type Source, type SourceDescriptor, type SourceItem } from "./types";
 
 const API = "https://api.notion.com/v1";
 const VERSION = "2022-06-28";
@@ -85,3 +87,21 @@ export class NotionSource implements Source {
   }
 
 }
+
+const SECRET = "notion.token";
+
+export const notion: SourceDescriptor = {
+  id: "notion",
+  meta: SOURCE_META.notion,
+  secret: SECRET,
+  build: async ({ secrets }) => {
+    const token = await secrets.get(SECRET);
+    return token ? new NotionSource(token) : "钥匙串里没有令牌";
+  },
+  event: (item) => ({ key: `notion:${String(item.payload.pageId ?? "")}`, reply: { page: String(item.payload.pageId ?? "") } }),
+  async connect({ secrets, signal, readSecret }) {
+    const token = await readSecret("Notion 集成令牌（输入不显示）：");
+    if (!isStorableSecret(token)) throw new Error("令牌里有不支持的字符");
+    return { checks: await new NotionSource(token).check(signal), save: () => secrets.set(SECRET, token) };
+  },
+};
