@@ -343,14 +343,19 @@ export class Engine {
     if (this.linking) return;
     this.linking = true;
     try {
+      // Jira 为什么查不成（没装、没登录）：认不出命令行时，替换 collectLinks 那句笼统的话。
+      let jiraWhy: string | null = null;
       if (this.enabled.jira && this.jiraCli === null) {
         const cli = findJiraCli();
-        if (cli) {
+        if (!cli) jiraWhy = "没找到 acli 或 twg";
+        else {
           try {
             const { site } = await cli.status(this.abort.signal);
             if (site) this.jiraCli = { cli, site };
-          } catch {
-            // 没登录：这一轮 Jira 查不成（collectLinks 记进 errors），下一轮再认。
+            else jiraWhy = `${cli.name} 没认出 Jira 站点，到终端里跑 ${cli.login}`;
+          } catch (error) {
+            // 没登录：这一轮 Jira 查不成，下一轮再认。
+            jiraWhy = error instanceof Error ? error.message : `${cli.name} 没登录 Jira，到终端里跑 ${cli.login}`;
           }
         }
       }
@@ -365,7 +370,7 @@ export class Engine {
         slackWorkspace: loadSettings().slackWorkspace ?? null,
         site: this.jiraCli?.site ?? siteFromEvents(events),
       }, prev, this.abort.signal);
-      if (this.enabled.jira && this.jiraCli === null && Object.keys(out.jira).length === 0 && !out.errors.jira) out.errors.jira = "acli 没登录 Jira，到终端里跑 acli jira auth login --web";
+      if (jiraWhy !== null && out.errors.jira) out.errors.jira = jiraWhy.replace(/\s+/g, " ").slice(0, 160);
       writeJson(paths().links, out);
       const errs = Object.entries(out.errors).map(([k, v]) => `${k}：${v}`).join("；");
       log(`[links] 单子 ${Object.keys(out.jira).length} 张、PR ${Object.keys(out.prs).length} 个${errs ? `；没查成：${errs}` : ""}`);
