@@ -248,24 +248,32 @@ export async function ask(args: string[]): Promise<void> {
     const thingId = num(flag(args, "--thing") ?? undefined, "--thing ");
     const replyFlag = flag(args, "--reply");
     const replyId = replyFlag === null ? null : num(replyFlag, "--reply ");
-    let body: { question?: unknown; suggest?: unknown };
+    let body: { question?: unknown; suggest?: unknown; basis?: unknown; ifNot?: unknown };
     try {
       body = JSON.parse(await stdinText()) as typeof body;
     } catch {
-      fail("标准输入要是 JSON：{\"question\": \"…\", \"suggest\": \"…\"}");
+      fail("标准输入要是 JSON：{\"question\": \"…\", \"suggest\": \"…\", \"basis\": \"…\", \"ifNot\": \"…\"}");
     }
     if (typeof body.question !== "string" || !body.question.trim()) fail("question 不能空");
     const question = body.question.trim().slice(0, MAX_TEXT);
     const suggest = typeof body.suggest === "string" ? body.suggest.trim().slice(0, MAX_TEXT) : "";
+    // 依据、不照办会怎样：可选，面板写在建议下面，帮用户不用去会话里翻也能拍板。
+    const basis = typeof body.basis === "string" ? body.basis.trim().slice(0, MAX_TEXT) : "";
+    const ifNot = typeof body.ifNot === "string" ? body.ifNot.trim().slice(0, MAX_TEXT) : "";
     // 要提待发出里的哪条回复：用 --reply 挂上，面板在卡片上显示那条的摘要，不用在问题里写回复号。
     const hint = "要提待发出里的某条回复，用 --reply R 把它挂在这个问题上，面板会在卡片上显示那条的摘要。";
     if (manyQuestions(question)) fail("一个问题只问一件事：几件要定的分几次 chief ask add，每次一问一个建议（面板上每个问题各有照办、不同意、不用问了）。背景相同就各写一句，不用重复整段。");
     plainOnly(question, "问题（question）", {}, hint);
     plainOnly(suggest, "建议（suggest）", {}, hint);
+    plainOnly(basis, "依据（basis）", {}, hint);
+    plainOnly(ifNot, "不照办会怎样（ifNot）", {}, hint);
     if (replyId !== null && !loadReplies().items.some((r) => r.id === replyId)) fail(`没有回复 ${replyId}`);
     const newId = updateThings((t) => {
       const x = t.things.find((y) => y.id === thingId) ?? oops(`没有事情 ${thingId}`);
-      const a: Ask = { id: t.nextAsk++, thing: x.id, question, suggest, status: "open", at: new Date().toISOString(), ...(replyId !== null ? { reply: replyId } : {}) };
+      const a: Ask = {
+        id: t.nextAsk++, thing: x.id, question, suggest, status: "open", at: new Date().toISOString(),
+        ...(basis ? { basis } : {}), ...(ifNot ? { ifNot } : {}), ...(replyId !== null ? { reply: replyId } : {}),
+      };
       t.asks.push(a);
       x.status = "waiting_you";
       // 稍后再说的事情来了新问题：要你定的不能等，拿出来。
@@ -320,6 +328,26 @@ export async function ask(args: string[]): Promise<void> {
     process.stdout.write(`${JSON.stringify(out)}\n`);
     return;
   }
+  // chief ask explain Q --ask（标准输入：你想先弄清楚什么）：你在面板上点了「先问清楚」，记下来，问题照旧等你定。
+  // chief ask explain Q（标准输入：解释）：会话或主会话把解释写回来，面板写在那张卡上。
+  if (sub === "explain") {
+    const id = num(args.shift(), "问题号");
+    const asking = args.includes("--ask");
+    const text = await stdinText();
+    if (!text) fail(asking ? "标准输入写想先弄清楚什么" : "标准输入写解释");
+    plainOnly(text, asking ? "想问清楚的" : "解释");
+    const at = new Date().toISOString();
+    const out = updateThings((t) => {
+      const a = t.asks.find((y) => y.id === id) ?? oops(`没有问题 ${id}`);
+      if (a.status !== "open") oops(`问题 ${id} 已经${a.status === "answered" ? "答过了" : "关了"}`);
+      if (asking) a.explain = { asked: text.slice(0, MAX_TEXT), at };
+      else a.explain = { asked: a.explain?.asked ?? "", at: a.explain?.at ?? at, answer: text.slice(0, MAX_TEXT * 3), answeredAt: at };
+      const x = t.things.find((y) => y.id === a.thing);
+      return { ask: a.id, thing: a.thing, session: x?.session ?? null };
+    });
+    process.stdout.write(`${JSON.stringify(out)}\n`);
+    return;
+  }
   // chief ask reopen Q：撤回你的回答（或「不用问了」），问题回到等你定。
   if (sub === "reopen") {
     const id = num(args.shift(), "问题号");
@@ -339,7 +367,7 @@ export async function ask(args: string[]): Promise<void> {
     process.stdout.write(`${JSON.stringify(out)}\n`);
     return;
   }
-  fail("chief ask add|list|show|answer|dismiss|withdraw|reopen");
+  fail("chief ask add|list|show|answer|explain|dismiss|withdraw|reopen");
 }
 
 // 面板也直接读文件；这个给消息中心和终端看一眼用。

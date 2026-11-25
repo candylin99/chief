@@ -74,6 +74,11 @@ export type AskRow = {
   thing: number
   question: string
   suggest: string
+  // 依据（看了什么、谁说的）和不照办会怎样：问题卡上写在建议下面。
+  basis?: string
+  ifNot?: string
+  // 你点了「先问清楚」：问了什么、解释回来没有（answer）。
+  explain?: { asked: string; at: string; answer?: string; answeredAt?: string }
   status: 'open' | 'answered' | 'dismissed' | 'withdrawn'
   answer?: string
   reason?: string

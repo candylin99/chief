@@ -86,6 +86,12 @@ git merge upstream/main
 - **数据**（`engine/src/links.ts`）：引擎起来查一次、之后每 10 分钟，用 acli 查 Jira 单（和父需求）、gh 查 PR（90 秒超时），把每件事的消息按渠道和对话合起来，写进 `~/chief/data/links.json`。查不成接着用上一轮的；连着失败超过半小时，进度页顶上才有一行黄字。
 - hub 的派活模板（`skills/hub/handoff.md`）和「chief 进展」的处理（`SKILL.md`）带「阶段」。
 
+### 0.6.0：要你定的问题能先问清楚（2026-11-25）
+
+- 问题卡在「建议」下面多两行：**依据**（这个建议是看了什么、谁说了什么得出来的）和**不照办**（选别的会怎样）。工作会话报「chief 要你定」时多写「依据：」「不照办：」两行，消息中心登记时放进 `chief ask add` 的 `basis`、`ifNot`。
+- 「照办」旁边多一个**先问清楚**：点开可以写想知道什么，不写就问「背景、为什么这么建议、不照办会怎样」。面板先 `chief ask explain Q --ask` 记下在问（卡上显示「在问清楚：…」），再发「chief：问题 #Q 先问清楚：…」给消息中心；消息中心转给提出问题的会话，会话回「chief 解释 #Q」，消息中心 `chief ask explain Q` 写回，卡上整段显示「解释」。问题一直开着，不算你的决定。
+- 改法：引擎 `engine/src/commands/things.ts` 的 `ask`；面板 `hooks/tabs/now.tsx` 的 askCard、`hooks/actions.ts` 的 `explainAsk`；说明 `skills/hub/SKILL.md`、`panel-commands.md`、`handoff.md`。
+
 ## 本机换源记录（2026-11-24）
 
 - `~/.claude/settings.json` → `extraKnownMarketplaces.chief.source.repo` = `candylin99/chief`（原 `jinjin99/chief`）。

@@ -469,6 +469,24 @@ describe("策略能自己加、approve、进度表", () => {
     expect(chiefFails(h, "thing", "update", id, "--due", "明天")).toContain("YYYY-MM-DD");
   });
 
+  it("要你定带依据和不照办；先问清楚记下问什么、解释写回来，问题照旧开着", () => {
+    const h = home();
+    const t = run(h, "x", "thing", "add", "--title", "PROJ-9 国家下拉").trim();
+    const q = run(h, JSON.stringify({ question: "要按 PRD 改成两区都高亮吗？", suggest: "先问 UX 确认在哪", basis: "PRD 写两区都高亮，PR 描述写按 UX 确认", ifNot: "改要半天到一天" }), "ask", "add", "--thing", t).trim();
+    let a = JSON.parse(chief(h, "ask", "show", q));
+    expect(a).toMatchObject({ basis: "PRD 写两区都高亮，PR 描述写按 UX 确认", ifNot: "改要半天到一天", status: "open" });
+    run(h, "UX 确认在哪？", "ask", "explain", q, "--ask");
+    a = JSON.parse(chief(h, "ask", "show", q));
+    expect(a.explain).toMatchObject({ asked: "UX 确认在哪？" });
+    expect(a.explain.answer).toBeUndefined();
+    run(h, "Figma 评论里 Sam 说过只高亮全量区", "ask", "explain", q);
+    a = JSON.parse(chief(h, "ask", "show", q));
+    expect(a.explain).toMatchObject({ asked: "UX 确认在哪？", answer: "Figma 评论里 Sam 说过只高亮全量区" });
+    expect(a.status).toBe("open");
+    run(h, "照建议办", "ask", "answer", q);
+    expect(() => run(h, "再解释", "ask", "explain", q)).toThrow();
+  });
+
   it("阶段：汇报里写中文就认，变了记一笔，空字符串清掉，认不出的报错", () => {
     const h = home();
     const id = run(h, JSON.stringify({ progress: "开始写方案", stage: "方案中" }), "thing", "add", "--title", "PROJ-7 保修").trim();

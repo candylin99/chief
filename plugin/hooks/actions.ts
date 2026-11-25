@@ -100,6 +100,12 @@ export async function answerAsk($: Engine, id: number, answer: string, label: st
   await tell($, text, label, true)
 }
 
+// 「先问清楚」：先记下你想知道什么（卡片上马上显示在问），再交给主会话去问提出这个问题的会话；问题照旧等你定，不当成你的决定。
+export async function explainAsk($: Engine, id: number, asked: string, label: string) {
+  if (!(await act($, label, ['ask', 'explain', String(id), '--ask'], asked))) return
+  await tell($, `chief：问题 #${id} 先问清楚：${asked}`, label)
+}
+
 // 「不用问了」：这件不做，也不再问；交给主会话告诉那件事的会话。
 export async function dismissAsk($: Engine, id: number, label: string) {
   if (!(await act($, label, ['ask', 'dismiss', String(id)]))) return

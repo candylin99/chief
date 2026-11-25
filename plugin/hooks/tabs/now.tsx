@@ -5,11 +5,11 @@
 import type { EngineInterface as Engine } from 'claude-code'
 
 import type { AskRow, DecisionRow, Snapshot } from '../../types'
-import { ackKeyAlerts, answerAll, answerAsk, decideProposal, dismissAsk, engineDo, openSession, reopenAsk, setTab, skipOld, tell, toggle } from '../actions'
+import { ackKeyAlerts, answerAll, answerAsk, decideProposal, dismissAsk, engineDo, explainAsk, openSession, reopenAsk, setTab, skipOld, tell, toggle } from '../actions'
 import { markReread } from '../data'
 import { inboxOf, type Card, type SysItem } from '../inbox'
 import { sourceName, t } from '../i18n'
-import { RELOAD_SKILL, ago, dueLabel, listify, replyGist, short, splitAsk, startOfToday, whatOf, type Els } from '../ui'
+import { RELOAD_SKILL, ago, dueLabel, listify, md, replyGist, short, splitAsk, startOfToday, whatOf, type Els } from '../ui'
 import { stageLine, tagsRow } from '../tags'
 import { replyCard, sendingRow } from './outbox'
 
@@ -57,19 +57,40 @@ export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], e
     const linked = q.reply === undefined ? undefined : s.replies.find(r => r.id === q.reply)
     const { context, ask } = splitAsk(q.question)
     const typing = opened.includes(`dis${q.id}`)
+    const explaining = opened.includes(`exp${q.id}`)
     return (
       <Box key={`q${q.id}`} flexDirection="column" gap="xs" borderStyle="round" borderColor="inactive" borderDimColor paddingX="md" paddingY="sm">
         <Text weight="semibold" wrap="wrap">{fresh && <Text size="caption" color="warning">{w.fresh}{t().gap}</Text>}{listify(ask).replace(/\n\n/g, '\n')}</Text>
         {context !== '' && <Text size="footnote" dimColor wrap="wrap">{context}</Text>}
         {q.suggest !== '' && <Text size="footnote" wrap="wrap"><Text dimColor>{w.suggest}{t().gap}</Text>{listify(q.suggest).replace(/\n\n/g, '\n')}</Text>}
+        {q.basis && <Text size="footnote" wrap="wrap"><Text dimColor>{w.basis}{t().gap}</Text>{q.basis}</Text>}
+        {q.ifNot && <Text size="footnote" wrap="wrap"><Text dimColor>{w.ifNot}{t().gap}</Text>{q.ifNot}</Text>}
+        {/* 先问清楚：在问的写一行；解释回来了整段放在卡上，看完再定。 */}
+        {q.explain && !q.explain.answer && <Text size="footnote" color="suggestion" wrap="wrap">{w.explainPending(q.explain.asked)}</Text>}
+        {q.explain?.answer && (
+          <Box flexDirection="column" gap="xs">
+            <Text size="caption" weight="semibold" color="suggestion">{w.explainAnswer}{q.explain.answeredAt ? ` · ${ago(q.explain.answeredAt)}` : ''}</Text>
+            {md(ui, q.explain.answer)}
+          </Box>
+        )}
         {linked && <Text size="footnote" dimColor wrap="wrap">{w.linked(replyGist(linked))}</Text>}
         <Box flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
           {q.suggest !== '' && (
             <Button key={`ok${q.id}`} variant="primary" onPress={() => answerAsk($, q.id, '照建议办', w.ok, `chief：问题 #${q.id} 照建议办`)}>{w.ok}</Button>
           )}
+          <Button key={`ex${q.id}`} plain onPress={() => toggle($, `exp${q.id}`)}>{w.explainButton}</Button>
           <Button key={`no${q.id}`} plain onPress={() => toggle($, `dis${q.id}`)}>{w.disagreeShort}</Button>
           <Button key={`dm${q.id}`} plain onPress={() => dismissAsk($, q.id, w.dismiss)}>{w.dismiss}</Button>
         </Box>
+        {explaining && 'Input' in ui && (
+          <Box flexDirection="column" gap="xs" width="100%">
+            <ui.Input key={`exi${q.id}`} autoFocus rows={2} placeholder={w.explainPlaceholder} submitLabel={w.explainSend} onSubmit={(v: string) => {
+              void toggle($, `exp${q.id}`)
+              void explainAsk($, q.id, v.trim() || w.explainDefault, w.explainButton)
+            }} />
+            <Box flexDirection="row"><Button key={`exd${q.id}`} plain onPress={() => { void toggle($, `exp${q.id}`); void explainAsk($, q.id, w.explainDefault, w.explainButton) }}>{w.explainAsk}</Button></Box>
+          </Box>
+        )}
         {/* 三行高、占满一行：写得长也看得全。回车发送，换行和输入框一样。 */}
         {typing && 'Input' in ui && (
           <Box width="100%">

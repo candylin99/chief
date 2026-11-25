@@ -372,11 +372,11 @@ test('要你定按事情合成一张卡：每个问题各自回，刚定的能�
         { id: 3, title: '引擎拦编号', status: 'doing', progress: '', events: [], updatedAt: now, log: [] },
       ],
       asks: [
-        { id: 11, thing: 1, question: '方案出来了。SDK 谁来写？', suggest: '我们写', status: 'open', at: ago(3_600_000) },
+        { id: 11, thing: 1, question: '方案出来了。SDK 谁来写？', suggest: '我们写', status: 'open', at: ago(3_600_000), explain: { asked: '为什么是我们写？', at: ago(600_000), answer: '后端排期满了，**Bob** 说下周才有空。', answeredAt: ago(60_000) } },
         { id: 12, thing: 1, question: '1.0 要不要一起改？', suggest: '一起改', status: 'open', at: ago(600_000) },
         { id: 13, thing: 1, question: '要不要问设计稿？', suggest: '顺口问一句', status: 'answered', answer: '照建议办', at: ago(3_600_000), closedAt: ago(30_000) },
         { id: 14, thing: 1, question: '要不要拉设计？', suggest: '', status: 'withdrawn', reason: '对方已经拉了', at: ago(3_600_000), closedAt: ago(60_000) },
-        { id: 15, thing: 2, question: 'tab 高亮要改吗？', suggest: '改', status: 'open', at: ago(60_000) },
+        { id: 15, thing: 2, question: 'tab 高亮要改吗？', suggest: '改', basis: 'PRD 第 3 节写的两区都高亮', ifNot: '要跟 Sam 再对一次', status: 'open', at: ago(60_000) },
         // 答了很久的不出卡；整件事只剩撤掉的：放到底下「今天撤掉的问题」。
         { id: 16, thing: 2, question: '老问题？', suggest: '', status: 'answered', answer: '好', at: ago(86_400_000), closedAt: ago(3_600_000) },
         { id: 17, thing: 3, question: '要合进 main 吗？', suggest: '合', status: 'withdrawn', reason: '分支已经合了', at: ago(3_600_000), closedAt: ago(60_000) },
@@ -427,6 +427,23 @@ test('要你定按事情合成一张卡：每个问题各自回，刚定的能�
   expect(await ui.find({ type: 'Text', text: /老问题/ })).toBeFalsy()
   await has(/今天撤掉的问题/)
   await has(/引擎拦编号 · 要合进 main 吗？ · 已撤：分支已经合了/)
+
+  // 依据、不照办写在建议下面；问清楚回来的解释整段在卡上，问题照旧开着。
+  await has(/依据　PRD 第 3 节写的两区都高亮/)
+  await has(/不照办　要跟 Sam 再对一次/)
+  await has(/解释 · /)
+  await want(ui, { type: 'Markdown', text: '后端排期满了，**Bob** 说下周才有空。' })
+  // 先问清楚：不写就问那三件；先在 chief 里记下在问，再交给主会话；不当成你的决定。
+  await ui.press({ key: 'ex15' })
+  await ui.press({ key: 'exd15' })
+  const asked = runs.find(r => r.argv === 'ask explain 15 --ask')
+  expect(asked?.stdin).toBe('这个建议的背景是什么、为什么这么建议、不照办会怎样？')
+  expect(prompts.at(-1)).toBe('chief：问题 #15 先问清楚：这个建议的背景是什么、为什么这么建议、不照办会怎样？')
+  expect(runs.some(r => r.argv === 'ask answer 15')).toBe(false)
+  // 写了想问的就问那个。
+  await ui.press({ key: 'ex15' })
+  await ui.input({ key: 'exi15', text: 'UX 确认记录在哪？' })
+  expect(prompts.at(-1)).toBe('chief：问题 #15 先问清楚：UX 确认记录在哪？')
 
   await ui.press({ key: 're13' })
   expect(runs.some(r => r.argv === 'ask reopen 13')).toBe(true)

@@ -194,6 +194,12 @@ export interface Ask {
   question: string;
   // 主会话的建议（照着做的话会怎么做）。
   suggest: string;
+  // 依据：这个建议是看了什么、谁说了什么得出来的（PRD、PR、某人的原话）。
+  basis?: string;
+  // 不照办会怎样：选别的做法的代价、风险。
+  ifNot?: string;
+  // 你点了「先问清楚」：你想知道什么、什么时候问的；会话（或主会话）解释回来写在 answer。问题照旧等你定。
+  explain?: { asked: string; at: string; answer?: string; answeredAt?: string };
   // 关联的回复（建议的做法就是发这条回复时）。
   reply?: number;
   // open：等你定；answered：你定了（或主会话替你关了）；dismissed：你说不用问了；withdrawn：主会话撤掉了（问题不成立了，reason 写为什么）。
