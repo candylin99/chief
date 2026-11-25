@@ -545,23 +545,26 @@ test('稍后再说、撤回、搜以前的事', async ($, on) => {
   await ui.unmount()
 })
 
-test('事情卡上的阶段和标签：从哪来、需求的 Jira 状态、PR 的 review 和 CI，点开只开认得的网址', async ($, on) => {
+test('进度页的状态表：每个阶段几件；每行阶段、标记、在哪讨论过、需求和 PR 的状态，点开只开认得的网址', async ($, on) => {
   const runs: string[] = []
   on('command.register', () => ({ value: { command: 'chief' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   memStore(on)
   on('clock.every', () => ({ value: { cancel: () => {} } }))
+  const longAgo = new Date(Date.now() - 2 * 3600_000).toISOString()
   const files: Record<string, string> = {
     ...FILES,
     '/Users/me/chief/data/things.json': JSON.stringify({
       things: [
-        // 挂的是子任务：阶段看父需求（Test In Progress → 测试中）。
-        { id: 1, title: '退货页改版', session: 'local_abc', status: 'doing', progress: '在改', keys: ['RTC-2', 'github.com/acme/shop/pull/12', 'github.com/acme/shop/pull/13'], events: [5], updatedAt: now, log: [] },
+        // 挂的是子任务：阶段看父需求（Test In Progress → 测试中）。会话汇报的「开发中」不覆盖 Jira。
+        { id: 1, title: '退货页改版', session: 'local_abc', status: 'doing', progress: '在改', keys: ['RTC-2', 'github.com/acme/shop/pull/12', 'github.com/acme/shop/pull/13'], stage: { id: 'dev', at: now }, events: [5], updatedAt: now, log: [] },
         // Jira 还在 OPEN：用汇报里写的「方案中」。
         { id: 2, title: '保修方案', status: 'doing', progress: '写方案', keys: ['RTC-7'], stage: { id: 'design', at: now }, events: [], updatedAt: now, log: [] },
-        // 没有 Jira、也没汇报阶段：照旧显示「在做」。
-        { id: 3, title: '随手的小事', status: 'doing', progress: '', events: [], updatedAt: now, log: [] },
+        // 没挂键，但标题写了单号：照样认出需求（Released → 已上线）；卡住了。
+        { id: 3, title: 'RTC-9 移动端', status: 'doing', progress: '', blocker: '等设计稿', events: [], updatedAt: now, log: [] },
+        // 什么都没有：没阶段。
+        { id: 4, title: '随手的小事', status: 'doing', progress: '', events: [], updatedAt: now, log: [] },
       ],
       asks: [],
     }),
@@ -571,14 +574,23 @@ test('事情卡上的阶段和标签：从哪来、需求的 Jira 状态、PR �
         'RTC-2': { key: 'RTC-2', title: '子任务', status: 'OPEN', category: 'new', type: 'FE Sub-task', parent: 'RTC-1', url: 'https://acme.atlassian.net/browse/RTC-2' },
         'RTC-1': { key: 'RTC-1', title: '需求', status: 'Test In Progress', category: 'indeterminate', type: 'Story', url: 'https://acme.atlassian.net/browse/RTC-1' },
         'RTC-7': { key: 'RTC-7', title: '保修', status: 'OPEN', category: 'new', type: 'Story', url: 'https://acme.atlassian.net/browse/RTC-7' },
+        'RTC-9': { key: 'RTC-9', title: '移动端', status: 'Released', category: 'indeterminate', type: 'Story', url: 'https://acme.atlassian.net/browse/RTC-9' },
       },
       prs: {
         'github.com/acme/shop/pull/12': { ref: 'acme/shop#12', url: 'https://github.com/acme/shop/pull/12', title: 'x', state: 'open', draft: false, review: 'changes', ci: 'fail' },
         'github.com/acme/shop/pull/13': { ref: 'acme/shop#13', url: 'javascript:alert(1)', title: 'y', state: 'merged', draft: false, review: 'approved', ci: null },
       },
-      origins: { '1': { source: 'slack', label: '#rc-dev', url: 'https://acme.slack.com/archives/C123/p1700000000000100' } },
+      talks: {
+        '1': [
+          { source: 'slack', label: '#rc-dev', count: 3, lastAt: now, said: 'Marnie：能上线吗', url: 'https://acme.slack.com/archives/C123/p1700000000000100', first: true },
+          { source: 'slack', label: 'Alice', count: 1, lastAt: longAgo, said: 'Alice：私信', url: 'https://acme.slack.com/archives/D123/p1700000000000200' },
+          { source: 'github', label: 'shop#12', count: 2, lastAt: longAgo, said: 'approve 了', url: 'https://github.com/acme/shop/pull/12' },
+        ],
+      },
       messages: {},
-      errors: { jira: 'acli 没登录 Jira' },
+      // 刚失败一次：不提醒。
+      errors: { github: 'gh 90 秒没回应' },
+      failingSince: { github: now },
       jiraSite: 'acme.atlassian.net',
     }),
   }
@@ -598,28 +610,73 @@ test('事情卡上的阶段和标签：从哪来、需求的 Jira 状态、PR �
   await $.command.run({ command: 'chief', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'tab-things' })
-  await want(ui, { type: 'Text', text: /\[测试中\]/ })
-  await want(ui, { type: 'Text', text: /\[方案中\]/ })
-  await want(ui, { type: 'Text', text: /RTC-1 · Test In Progress/ })
-  await want(ui, { type: 'Text', text: /PR #12 · 要改 ✗ CI/ })
-  await want(ui, { type: 'Text', text: /PR #13 · 已合并/ })
-  await want(ui, { type: 'Text', text: /Slack · #rc-dev/ })
-  await want(ui, { type: 'Text', text: /单子、PR 的状态没查成：acli 没登录 Jira/ })
-  // 子任务换成了父需求，不单独显示。
+  // 最上面一行：每个阶段几件。
+  await want(ui, { type: 'Text', text: '方案中 1' })
+  await want(ui, { type: 'Text', text: '测试中 1' })
+  await want(ui, { type: 'Text', text: '已上线 1' })
+  await want(ui, { type: 'Text', text: '没阶段 1' })
+  await want(ui, { type: 'Text', text: '卡住了 1' })
+  // 每行：阶段、标记、标签。
+  await want(ui, { type: 'Text', text: '🎫 RTC-1 测试中' })
+  await want(ui, { type: 'Text', text: '🎫 RTC-7 计划中' })
+  await want(ui, { type: 'Text', text: '🎫 RTC-9 已上线' })
+  await want(ui, { type: 'Text', text: '🔀 #12 要改 · CI 挂了' })
+  await want(ui, { type: 'Text', text: '🔀 #13 已合并' })
+  await want(ui, { type: 'Text', text: '💬 Slack · 2 处' })
+  await want(ui, { type: 'Text', text: '🔀 shop#12' })
+  await want(ui, { type: 'Text', text: '🧵 会话' })
+  await want(ui, { type: 'Text', text: '卡在：等设计稿' })
+  // 子任务换成了父需求，不单独显示；GitHub 刚失败一次不提醒。
   expect(await ui.find({ type: 'Text', text: /RTC-2/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /半小时没查成/ })).toBeFalsy()
 
-  // 点标签：用系统的 open 打开那个地址。
-  await ui.press({ key: 'og1' })
+  // 点标签：用系统的 open 打开那个地址；Slack 两处的打开最近一条。
+  await ui.press({ key: 'tk1-slack' })
   expect(runs.at(-1)).toBe('/usr/bin/open https://acme.slack.com/archives/C123/p1700000000000100')
   await ui.press({ key: 'jr1-RTC-1' })
   expect(runs.at(-1)).toBe('/usr/bin/open https://acme.atlassian.net/browse/RTC-1')
   await ui.press({ key: 'pr1-github.com/acme/shop/pull/12' })
   expect(runs.at(-1)).toBe('/usr/bin/open https://github.com/acme/shop/pull/12')
+  await ui.press({ key: 'ss1' })
+  expect(runs.at(-1)).toBe('/usr/bin/open claude://code/continue?session=local_abc')
   // 地址不是这几家的 https：不开。
   const before = runs.length
   await ui.press({ key: 'pr1-github.com/acme/shop/pull/13' })
   expect(runs.length).toBe(before)
   await want(ui, { type: 'Text', text: /没打开/ })
+
+  // 点开一行：每处讨论各一行，能点开，下面是最近说的。
+  await ui.press({ key: 'tg1' })
+  await want(ui, { type: 'Text', text: /💬 Slack · #rc-dev · 3 条 · .* · 最早从这来 ↗/ })
+  await want(ui, { type: 'Text', text: 'Alice：私信' })
+  await ui.press({ key: 'tlb1-1' })
+  expect(runs.at(-1)).toBe('/usr/bin/open https://acme.slack.com/archives/D123/p1700000000000200')
+  await ui.unmount()
+})
+
+test('单子、PR 连着半小时查不成才提醒', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'chief' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  memStore(on)
+  on('clock.every', () => ({ value: { cancel: () => {} } }))
+  const files: Record<string, string> = {
+    ...FILES,
+    '/Users/me/chief/data/things.json': JSON.stringify({ things: [{ id: 1, title: 'x', status: 'doing', progress: '', keys: ['RTC-1'], events: [], updatedAt: now, log: [] }], asks: [] }),
+    '/Users/me/chief/data/links.json': JSON.stringify({ at: now, jira: {}, prs: {}, talks: {}, messages: {}, errors: { jira: 'acli 没登录 Jira' }, failingSince: { jira: new Date(Date.now() - 3600_000).toISOString() } }),
+  }
+  on('fs.read', (_, e) => {
+    if (e.path === '/Users/me/chief/data/bin/chief') return { value: '#!/bin/sh' }
+    const text = files[e.path]
+    if (text === undefined) throw new Error('missing')
+    return { value: text }
+  })
+  on('process.run', (_, e) => (e.argv[0] === '/usr/bin/env' ? { value: { exitCode: 0, stdout: 'HOME=/Users/me\nPATH=/usr/bin\n', stderr: '' } } : { value: { exitCode: 0, stdout: '', stderr: '' } }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'chief', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'tab-things' })
+  await want(ui, { type: 'Text', text: /单子、PR 的状态半小时没查成：acli 没登录 Jira/ })
   await ui.unmount()
 })
 

@@ -1,10 +1,11 @@
-// 「进度」页：每件事一行，状态标签、最近的进展，点开看下一步、卡在哪、结果；搜以前的事；稍后再说的、办完的；
+// 「进度」页：最上面一张状态表（每个阶段几件；每件事一行：阶段、标记、标题、在哪讨论过、关联的需求和 PR、会话），点一行展开看每处讨论、下一步、卡在哪、结果；
+// 搜以前的事；稍后再说的、办完的；
 // 最近 7 天它做了什么（判断、发出的回复、能撤回的），判断错了在这里说（timeline.tsx）。只看，要你动手的在「要你」页。
 import type { EngineInterface as Engine, RenderChildren } from 'claude-code'
 
 import type { SearchHit, Snapshot, ThingRow } from '../../types'
 import { clearSearch, finish, openSession, search, setTab, snooze, tell, toggle, wake } from '../actions'
-import { stageBadge, tagsRow, thingStage } from '../tags'
+import { flagBadges, linkProblem, stageBadge, stageOrder, stageSummary, tagsRow, talksList } from '../tags'
 import { timeline } from './timeline'
 import { t as dict } from '../i18n'
 import { ago, annotateBox, annotateButton, awake, daysLeft, gist, live, md, short, snoozed, startOfToday, wakeLabel, type Els } from '../ui'
@@ -73,9 +74,9 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
     if (t.status === 'waiting_others') return { rank: 8, label: w.waitingOthers, hot: false }
     return { rank: 9, label: w.doing, hot: false }
   }
-  const sorted = [...active].sort((a, b) => chip(a).rank - chip(b).rank || touched(b).localeCompare(touched(a)))
+  // 状态表的顺序：按阶段从前到后（没阶段的最后）；同一阶段里要你留意的在前，再按最近有动静的。
+  const sorted = [...active].sort((a, b) => stageOrder(s, a) - stageOrder(s, b) || Number(chip(b).hot) - Number(chip(a).hot) || touched(b).localeCompare(touched(a)))
   const hot = sorted.filter(t => chip(t).hot)
-  const rest = sorted.filter(t => !chip(t).hot)
   const done = s.things.filter(t => !live(t) && Date.parse(t.updatedAt) >= dayStart - 6 * 86_400_000).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   const doneOpen = opened.includes('done-list')
 
@@ -91,15 +92,16 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
     </Box>
   )
 
-  // 一件事一行：状态标签、标题、截止；下面一行最近的进展。点开看下一步、卡在哪、结果，和操作（常用的两个在外面，其余在 ⋯ 里）。
+  // 状态表的一行：阶段、标记、标题（点开 / 收起），右边多久以前有动静和截止；第二行标签；第三行一句最近的（会话等你答、卡住的写那个）。
+  // 点开：每处讨论、下一步、现在、结果，和操作（常用的两个在外面，其余在 ⋯ 里）。会话在等你回答的，不点开也给「去回答」。
   const row = (t: ThingRow) => {
     const key = `t${t.id}`
     const isOpen = opened.includes(key)
     const more = opened.includes(`more-t${t.id}`)
     const c = chip(t)
-    const stage = thingStage(s, t)
     const fresh = live_(t)
     const l = latest(t)
+    const waiting = act(t)?.waiting
     const block = (label: string, body: RenderChildren) => (
       <Box flexDirection="column" gap="xs">
         <Text size="caption" weight="semibold" dimColor>{label}</Text>
@@ -107,39 +109,38 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
       </Box>
     )
     return (
-      <Box key={key} flexDirection="column" borderStyle="round" borderColor={c.hot ? c.color : 'inactive'} paddingX="md" paddingY="sm" gap="xs" marginTop="sm">
-        {/* 第一行：阶段、标题；右边是要你留意的状态（正常在做的、有阶段时不再写「在做」）和截止。 */}
+      <Box key={key} flexDirection="column" borderStyle="round" borderColor={c.hot ? c.color ?? 'inactive' : 'inactive'} paddingX="md" paddingY="sm" gap="xs" marginTop="xs">
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap="sm">
-          <Box flexShrink={1}>
-            <Button key={`tg${t.id}`} plain onPress={() => toggle($, key)}>
-              {stage ? stageBadge(ui, s, t) : <Text size="caption" color={c.color} dimColor={c.color === undefined}>{c.label}{T.gap}</Text>}<Text weight="semibold">{short(t.title, 60)}</Text>
-            </Button>
+          <Box flexDirection="row" alignItems="center" gap="xs" flexShrink={1} flexWrap="wrap">
+            {stageBadge(ui, s, t)}
+            {flagBadges(ui, s, t) as never}
+            <Box flexShrink={1}>
+              <Button key={`tg${t.id}`} plain onPress={() => toggle($, key)}><Text weight="semibold">{`${isOpen ? '▾' : '▸'} ${short(t.title, 56)}`}</Text></Button>
+            </Box>
           </Box>
-          {(stage && c.rank < 9) || t.due
-            ? <Text size="caption" wrap="truncate-end">{stage && c.rank < 9 && <Text color={c.color} dimColor={c.color === undefined}>{c.label}</Text>}{stage && c.rank < 9 && t.due ? ' · ' : ''}{t.due ? <Text dimColor>{w.dueOn(t.due)}</Text> : null}</Text>
-            : null}
+          <Box flexShrink={0}><Text size="caption" dimColor>{ago(touched(t))}{t.due ? ` · ${w.dueOn(t.due)}` : ''}</Text></Box>
         </Box>
-        {/* 第二行：从哪来、关联的需求和 PR，都能点开。 */}
         {tagsRow($, ui, s, t)}
-        {act(t)?.waiting
-          ? <Text size="footnote" color="error" wrap="wrap"><Text dimColor>{w.asksYou}</Text>{act(t)!.waiting}</Text>
+        {waiting
+          ? <Text size="footnote" color="error" wrap="wrap"><Text dimColor>{w.asksYou}</Text>{waiting}</Text>
           : t.blocker
             ? <Text size="footnote" color="error" wrap="wrap">{w.blockedOn(t.blocker)}</Text>
-            : <Text size="footnote" wrap="truncate-end">{l.text}<Text dimColor>{T.gap}{l.when}{l.fromSession ? w.fromSession : ''}</Text></Text>}
-        {c.rank === 6 && <Box flexDirection="row"><Button key={`ti${t.id}`} plain onPress={() => setTab($, 'now')}>{w.toInbox(asksOf(t))}</Button></Box>}
+            : !isOpen && <Text size="footnote" dimColor wrap="truncate-end">{l.text}{l.fromSession ? w.fromSession : ''}</Text>}
         {isOpen && (
           <Box flexDirection="column" gap="md" marginTop="xs">
+            {talksList($, ui, s, t)}
             {/* 会话自己说的比主会话记的新：会话的话更准，放前面；主会话记的标明是它记的、可能过时。 */}
             {fresh && block(w.sessionSaid(ago(fresh.at)), md(ui, fresh.last))}
             {block(w.next, <Text size="footnote" wrap="wrap">{t.next ?? w.unclear}</Text>)}
             {t.progress && block(fresh ? w.hubNoted(ago(t.updatedAt)) : w.nowLabel, <Text size="footnote" dimColor={fresh !== null} wrap="wrap">{t.progress}</Text>)}
             {(t.results ?? []).length > 0 && block(w.results, <Box flexDirection="column">{(t.results ?? []).map((r, i) => <Box key={`rs${t.id}-${i}`}>{md(ui, r)}</Box>)}</Box>)}
+            {asksOf(t) > 0 && <Box flexDirection="row"><Button key={`ti${t.id}`} plain onPress={() => setTab($, 'now')}>{w.toInbox(asksOf(t))}</Button></Box>}
             {bypass(t) && <Text size="caption" color="warning" wrap="wrap">{w.bypass}</Text>}
           </Box>
         )}
-        {(isOpen || c.hot) && (
+        {(isOpen || waiting) && (
           <Box flexDirection="row" gap="sm" flexWrap="wrap" alignItems="center">
-            {t.session && <Button key={`ot${t.id}`} variant="primary" onPress={() => goSession(t)}>{act(t)?.waiting ? w.answer : w.goSession}</Button>}
+            {t.session && <Button key={`ot${t.id}`} variant="primary" onPress={() => goSession(t)}>{waiting ? w.answer : w.goSession}</Button>}
             <Button key={`dn${t.id}`} onPress={() => finish($, t, 'done')}>{w.done}</Button>
             <Button key={`mo${t.id}`} plain onPress={() => toggle($, `more-t${t.id}`)}>{more ? T.less : T.more}</Button>
             {more && t.session && <Button key={`aask${t.id}`} onPress={() => tell($, `chief：转告事情 #${t.id}：现在进展怎么样？还差什么，能不能按时完成？`, w.askProgress)}>{w.askProgress}</Button>}
@@ -178,15 +179,10 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
     </Box>
   )
 
-  const section = (title: string, n: number) => (
-    <Box marginTop="lg" marginBottom="xs"><Text size="footnote" weight="semibold">{title} · {n}</Text></Box>
-  )
 
   return (
     <Box flexDirection="column" marginTop="sm">
-      {Object.keys(s.links.errors).length > 0 && active.some(x => (x.keys ?? []).length > 0) && (
-        <Text size="caption" color="warning" wrap="wrap">{T.tags.linkErrors(Object.values(s.links.errors).join('；'))}</Text>
-      )}
+      {linkProblem(s) !== null && <Text size="caption" color="warning" wrap="wrap">{T.tags.linkErrors(linkProblem(s)!)}</Text>}
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap="sm">
         <Text size="caption" dimColor>{w.summary(active.length, hot.length, done.length)}</Text>
         <Button key="progress" plain onPress={() => tell($, 'chief：问一遍各事情的最新进展', w.askProgress)}>{w.askAll}</Button>
@@ -211,9 +207,8 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
       )}
 
       {active.length === 0 && <Box marginTop="sm"><Text dimColor>{w.none}</Text></Box>}
-      {hot.map(row)}
-      {rest.length > 0 && hot.length > 0 && section(w.moving, rest.length)}
-      {rest.map(row)}
+      {active.length > 0 && <Box marginTop="md" marginBottom="xs">{stageSummary(ui, s, active)}</Box>}
+      {sorted.map(row)}
 
       {done.length > 0 && (
         <Box flexDirection="column">

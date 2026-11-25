@@ -1,24 +1,23 @@
-// 事情关联的东西现在怎样：Jira 单（和它的父需求）是什么状态、PR 开着还是合了、review 和 CI 过没过，这件事最早是从哪条消息来的。
+// 事情关联的东西现在怎样：Jira 单（和它的父需求）是什么状态、PR 开着还是合了、review 和 CI 过没过；这件事在哪些渠道、哪几处对话里讨论过。
 // 引擎每 10 分钟查一次（只查没办完的事情），写进 links.json，面板读它画标签和阶段。只读：Jira 只搜和看，GitHub 只看 PR。
 // 查询里只放认得出的工单号和 PR 地址（先过正则），不拼别的字。
 import type { JiraCli } from "./sources/jira";
 import type { GhRunner } from "./sources/github";
-import type { ChiefEvent, JiraLink, LinksFile, OriginLink, PrLink, Reply, Thing } from "./shared/types";
+import { ticketKeysIn } from "./shared/stage";
+import type { ChiefEvent, JiraLink, LinksFile, PrLink, Reply, TalkLink, Thing } from "./shared/types";
 
 const JIRA_KEY = /^[A-Z][A-Z0-9]{1,9}-\d{1,7}$/;
 const PR_KEY = /^github\.com\/([\w.-]{1,100})\/([\w.-]{1,100})\/pull\/(\d{1,9})$/;
 const SLACK_KEY = /^slack:([CDG][A-Z0-9]{2,20}):(\d{9,11}\.\d{1,6})$/;
-const NOTION_KEY = /^notion:([0-9a-f]{32})$/;
 const WORKSPACE = /^[a-z0-9][a-z0-9-]{0,62}$/;
-const SITE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 // 一轮最多查多少：事情多了也不至于把 Jira / GitHub 打爆。
 const MAX_JIRA = 80;
 const MAX_PRS = 40;
 const BATCH = 40;
-// 交过来的消息里，这几种是 chief 自己补交、提醒的，不算「从哪来」。
+// 交过来的消息里，这几种是 chief 自己补交、提醒的，不算讨论。
 const NOT_ORIGIN = new Set(["chief.missed", "thing.woke", "digest"]);
 
-export const EMPTY_LINKS: LinksFile = { at: null, jira: {}, prs: {}, origins: {}, messages: {}, errors: {} };
+export const EMPTY_LINKS: LinksFile = { at: null, jira: {}, prs: {}, talks: {}, messages: {}, errors: {}, failingSince: {} };
 
 export function jiraKeysIn(keys: readonly string[]): string[] {
   return keys.filter((k) => JIRA_KEY.test(k));
@@ -52,27 +51,57 @@ const one = (s: string, max: number) => {
   return t.length > max ? `${t.slice(0, max)}…` : t;
 };
 
-// 一件事从哪来：它最早的那条消息（chief 自己补交的提醒不算）；没有消息的（导入的）看它的键。
-export function originOf(t: Thing, eventOf: (id: number) => ChiefEvent | null, workspace: string | null, site: string | null): OriginLink | null {
+// 一条消息属于哪一处对话：Slack 按 thread（没有 thread 按频道），Jira 按单子，GitHub 按 PR / issue，Notion 按页面。
+function talkKey(e: ChiefEvent): string {
+  if (e.source === "slack") return e.keys.find((k) => SLACK_KEY.test(k)) ?? `slack:${e.reply.channel ?? e.title}`;
+  if (e.source === "jira") return `jira:${e.reply.key ?? e.keys[0] ?? e.title}`;
+  if (e.source === "github") return `github:${e.reply.ref ?? e.url ?? e.title}`;
+  return `${e.source}:${e.keys[0] ?? e.title}`;
+}
+
+function talkLabel(e: ChiefEvent): string {
+  if (e.source === "slack") return e.why.includes("self") ? "我自己" : one(e.title, 24);
+  if (e.source === "jira") return e.reply.key ?? one(e.title.split(" ")[0] ?? e.title, 16);
+  if (e.source === "github") {
+    const ref = e.reply.ref ?? "";
+    return ref ? one(ref.replace(/^[^/]+\//, ""), 28) : one(e.title, 28);
+  }
+  return one(e.title, 24);
+}
+
+// 这件事在哪讨论过：所有归到它的消息（会话自己的汇报、chief 补交的提醒不算），按对话合起来，最近的在前；最早那条所在的标 first。
+// 一条消息都没有的（导入的），看它的 Slack thread 键补一处。
+export function talksOf(t: Thing, eventOf: (id: number) => ChiefEvent | null, workspace: string | null): TalkLink[] {
+  const groups = new Map<string, { first: ChiefEvent; last: ChiefEvent; count: number; url: string | null }>();
+  let earliest: { key: string; id: number } | null = null;
   for (const id of [...t.events].sort((a, b) => a - b)) {
     const e = eventOf(id);
-    if (!e || NOT_ORIGIN.has(e.kind)) continue;
-    // Slack 的标题是对话的名字（#频道、私信的人）；你给自己发的那种写成「我自己」。
-    const label = e.source === "slack" && e.why.includes("self") ? "我自己" : one(e.title, e.source === "slack" || e.source === "session" ? 30 : 40);
-    return { source: e.source, label, url: messageUrl(e, workspace) };
+    if (!e || NOT_ORIGIN.has(e.kind) || e.source === "session" || e.source === "chief") continue;
+    const key = talkKey(e);
+    const g = groups.get(key);
+    const url = messageUrl(e, workspace);
+    if (g) {
+      g.count++;
+      g.last = e;
+      if (url) g.url = url;
+    } else groups.set(key, { first: e, last: e, count: 1, url });
+    if (earliest === null) earliest = { key, id };
   }
-  for (const k of t.keys ?? []) {
-    const s = SLACK_KEY.exec(k);
-    if (s) return { source: "slack", label: "Slack", url: slackPermalink(workspace, s[1]!, s[2]!) };
+  const out: TalkLink[] = [...groups.entries()].map(([key, g]) => ({
+    source: g.last.source, label: talkLabel(g.first), count: g.count, lastAt: g.last.at,
+    said: one(`${g.last.from && !g.last.why.includes("self") ? `${g.last.from}：` : ""}${g.last.text}`, 80), url: g.url,
+    ...(earliest?.key === key ? { first: true as const } : {}),
+  }));
+  if (out.length === 0) {
+    for (const k of t.keys ?? []) {
+      const s = SLACK_KEY.exec(k);
+      if (s) {
+        out.push({ source: "slack", label: "Slack", count: 0, lastAt: t.updatedAt, said: "", url: slackPermalink(workspace, s[1]!, s[2]!), first: true });
+        break;
+      }
+    }
   }
-  for (const k of t.keys ?? []) {
-    if (JIRA_KEY.test(k)) return { source: "jira", label: k, url: site && SITE.test(site) ? `https://${site}/browse/${k}` : null };
-    const pr = prUrl(k);
-    if (pr) return { source: "github", label: k.replace(/^github\.com\/[^/]+\//, "").replace("/pull/", "#"), url: pr };
-    const n = NOTION_KEY.exec(k);
-    if (n) return { source: "notion", label: "Notion", url: `https://www.notion.so/${n[1]}` };
-  }
-  return null;
+  return out.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
 }
 
 // —— GitHub：gh pr view 的结果 → PR 的样子 ——
@@ -183,7 +212,8 @@ export async function collectLinks(
   deps: LinkDeps, prev: LinksFile, signal: AbortSignal, now = new Date(),
 ): Promise<LinksFile> {
   const active = things.filter(live);
-  const keys = active.flatMap((t) => t.keys ?? []);
+  // 标题里写了单号、却没挂成键的，也查。
+  const keys = active.flatMap((t) => [...(t.keys ?? []), ...ticketKeysIn(t.title)]);
   const jiraKeys = [...new Set(jiraKeysIn(keys))].slice(0, MAX_JIRA);
   const prKeys = [...new Set(prKeysIn(keys))].slice(0, MAX_PRS);
   const errors: Record<string, string> = {};
@@ -214,10 +244,10 @@ export async function collectLinks(
     }
   } else if (!deps.gh && prKeys.length > 0) errors.github = "GitHub 没连上（没装 gh，或在设置里关了）";
 
-  const origins: Record<string, OriginLink> = {};
+  const talks: Record<string, TalkLink[]> = {};
   for (const t of active) {
-    const o = originOf(t, eventOf, deps.slackWorkspace, deps.site);
-    if (o) origins[String(t.id)] = o;
+    const list = talksOf(t, eventOf, deps.slackWorkspace);
+    if (list.length > 0) talks[String(t.id)] = list;
   }
   // 等你确认的回复：回的是哪条消息，卡片上能点开原消息。
   const messages: Record<string, string> = {};
@@ -227,7 +257,10 @@ export async function collectLinks(
     const url = e ? messageUrl(e, deps.slackWorkspace) : null;
     if (url) messages[String(r.event)] = url;
   }
-  return { at: now.toISOString(), jira, prs, origins, messages, errors, jiraSite: deps.site };
+  // 连着查不成从什么时候开始：上一轮就在失败的沿用那个时间，这一轮好了的清掉。
+  const failingSince: Record<string, string> = {};
+  for (const k of Object.keys(errors)) failingSince[k] = prev.failingSince?.[k] ?? now.toISOString();
+  return { at: now.toISOString(), jira, prs, talks, messages, errors, failingSince, jiraSite: deps.site };
 }
 
 // Jira 没登录时也想拼出单子的链接：从收到过的 Jira 消息的地址里认出站点。

@@ -109,7 +109,10 @@ export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], e
       <Box key={id} flexDirection="column" gap="sm" marginTop="md" borderStyle="round" borderColor={c.rank <= 1 ? 'error' : 'inactive'} paddingX="md" paddingY="sm">
         <Box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap="sm">
           <Box flexDirection="column" flexShrink={1} gap="xs">
-            <Text weight="semibold" wrap="wrap">{th && stageBadge(ui, s, th)}{title}</Text>
+            <Box flexDirection="row" alignItems="center" gap="xs" flexWrap="wrap">
+              {th && stageBadge(ui, s, th)}
+              <Box flexShrink={1}><Text weight="semibold" wrap="wrap">{title}</Text></Box>
+            </Box>
             <Text size="caption" wrap="wrap">
               {due && <Text color={due.color} dimColor={due.color === undefined}>{due.text}</Text>}
               {due && counts ? ' · ' : ''}

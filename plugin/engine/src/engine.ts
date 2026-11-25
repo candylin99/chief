@@ -366,7 +366,7 @@ export class Engine {
       const prev = { ...EMPTY_LINKS, ...readJson<Partial<LinksFile>>(paths().links, {}) };
       const out = await collectLinks(loadThings().things, loadReplies().items, eventOf, {
         jira: this.jiraCli,
-        gh: gh ? ghRunner(gh) : null,
+        gh: gh ? ghRunner(gh, 90_000) : null,
         slackWorkspace: loadSettings().slackWorkspace ?? null,
         site: this.jiraCli?.site ?? siteFromEvents(events),
       }, prev, this.abort.signal);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ciOf, collectLinks, EMPTY_LINKS, originOf, prOf, siteFromEvents, slackPermalink } from "../src/links";
-import { jiraStage, parseStage, stageOf } from "../src/shared/stage";
+import { ciOf, collectLinks, EMPTY_LINKS, prOf, siteFromEvents, slackPermalink, talksOf } from "../src/links";
+import { jiraStage, parseStage, prStage, stageOf, ticketKeysIn } from "../src/shared/stage";
 import type { JiraCli } from "../src/sources/jira";
 import type { ChiefEvent, Thing } from "../src/shared/types";
 
@@ -8,39 +8,60 @@ const thing = (over: Partial<Thing>): Thing => ({ id: 1, title: "x", status: "do
 const ev = (over: Partial<ChiefEvent>): ChiefEvent => ({ id: 1, at: "2026-11-24T00:00:00Z", source: "slack", kind: "message.received", title: "#rc-dev", url: null, from: "bob", text: "", why: ["mention"], keys: [], reply: {}, ...over });
 
 describe("阶段", () => {
-  it("RTC 的 Jira 状态都认得", () => {
-    expect(jiraStage("OPEN")).toBe("todo");
+  it("RTC 的 Jira 状态都换成七个阶段之一，ON HOLD 是暂停", () => {
+    expect(jiraStage("OPEN")).toBe("plan");
     expect(jiraStage("Under development")).toBe("dev");
     expect(jiraStage("Test In Progress")).toBe("testing");
-    expect(jiraStage("Acceptance Check")).toBe("acceptance");
+    expect(jiraStage("Acceptance Check")).toBe("testing");
     expect(jiraStage("Ready To Deploy")).toBe("ready");
-    expect(jiraStage("Test In Production")).toBe("prodcheck");
-    expect(jiraStage("Released")).toBe("released");
+    expect(jiraStage("Test In Production")).toBe("live");
+    expect(jiraStage("Released")).toBe("live");
+    expect(jiraStage("Closed")).toBe("live");
     expect(jiraStage("ON HOLD")).toBe("hold");
-    expect(jiraStage("Closed")).toBe("done");
-    expect(jiraStage("Resolved")).toBe("done");
   });
 
   it("认不出的按大类：进行中不知道哪一步", () => {
-    expect(jiraStage("Something Odd", "new")).toBe("todo");
-    expect(jiraStage("Something Odd", "done")).toBe("done");
+    expect(jiraStage("Something Odd", "new")).toBe("plan");
+    expect(jiraStage("Something Odd", "done")).toBe("live");
     expect(jiraStage("Something Odd", "indeterminate")).toBeNull();
   });
 
-  it("汇报里写中文、带空格、写 id 都认", () => {
+  it("汇报里写中文、带空格、写 id、旧版的 id 都认", () => {
+    expect(parseStage("计划中")).toBe("plan");
     expect(parseStage("方案中")).toBe("design");
+    expect(parseStage("评审用例中")).toBe("casereview");
     expect(parseStage("QA 用例评审")).toBe("casereview");
-    expect(parseStage("提测")).toBe("handoff");
-    expect(parseStage("testing")).toBe("testing");
+    expect(parseStage("提测")).toBe("testing");
+    expect(parseStage("已上线")).toBe("live");
+    expect(parseStage("暂停")).toBe("hold");
+    expect(parseStage("released")).toBe("live");
     expect(parseStage("随便写的")).toBeNull();
   });
 
-  it("Jira 还在待开始 / 开发中时用汇报的更细的阶段，其余按 Jira", () => {
-    expect(stageOf("todo", "design")).toBe("design");
-    expect(stageOf("dev", "casereview")).toBe("casereview");
-    expect(stageOf("testing", "dev")).toBe("testing");
-    expect(stageOf(null, "design")).toBe("design");
-    expect(stageOf("dev", null)).toBe("dev");
+  it("有 Jira 按 Jira，只在 Jira 还是计划中时用汇报的；没有 Jira 用汇报的，再看 PR", () => {
+    expect(stageOf("dev", "testing")).toEqual({ stage: "dev", paused: false });
+    expect(stageOf("plan", "design")).toEqual({ stage: "design", paused: false });
+    expect(stageOf("plan", null)).toEqual({ stage: "plan", paused: false });
+    expect(stageOf(null, "casereview", "dev")).toEqual({ stage: "casereview", paused: false });
+    expect(stageOf(null, null, "dev")).toEqual({ stage: "dev", paused: false });
+    expect(stageOf(null, null, null)).toEqual({ stage: null, paused: false });
+  });
+
+  it("Jira ON HOLD 或汇报写暂停：叠暂停标记，阶段照规则另取", () => {
+    expect(stageOf("hold", null, "dev")).toEqual({ stage: "dev", paused: true });
+    expect(stageOf("dev", "hold")).toEqual({ stage: "dev", paused: true });
+  });
+
+  it("PR 推断：有开着的算开发中，全合了算待发布", () => {
+    expect(prStage([{ state: "open" }, { state: "merged" }])).toBe("dev");
+    expect(prStage([{ state: "merged" }, { state: "closed" }])).toBe("ready");
+    expect(prStage([{ state: "closed" }])).toBeNull();
+    expect(prStage([])).toBeNull();
+  });
+
+  it("标题里的单号认出来，像单号的编码不算", () => {
+    expect(ticketKeysIn("RTC-35159 S1 Shopper 状态卡，跟 RTC-34362 一起")).toEqual(["RTC-35159", "RTC-34362"]);
+    expect(ticketKeysIn("UTF-8 和 ISO-8601")).toEqual([]);
   });
 });
 
@@ -76,23 +97,28 @@ describe("PR", () => {
   });
 });
 
-describe("从哪来", () => {
+describe("在哪讨论过", () => {
   const events = new Map<number, ChiefEvent>([
     [3, ev({ id: 3, kind: "chief.missed", title: "漏掉了：#5" })],
-    [5, ev({ id: 5, title: "#proj-warranty", reply: { channel: "C0BAEDD58H1", ts: "1794968277.845879" } })],
-    [9, ev({ id: 9, source: "jira", kind: "jira.issue", title: "RTC-1 做个东西", url: "https://aftership.atlassian.net/browse/RTC-1", reply: { key: "RTC-1" } })],
+    [5, ev({ id: 5, at: "2026-11-24T01:00:00Z", title: "#proj-rtc", from: "Marnie", text: "这个能上线吗", keys: ["slack:C0BAEDD58H1:1794968277.845879"], reply: { channel: "C0BAEDD58H1", ts: "1794968277.845879" } })],
+    [6, ev({ id: 6, at: "2026-11-24T03:00:00Z", title: "#proj-rtc", from: "Bob", text: "我再看看", keys: ["slack:C0BAEDD58H1:1794968277.845879"], reply: { channel: "C0BAEDD58H1", ts: "1794968299.000100", thread_ts: "1794968277.845879" } })],
+    [7, ev({ id: 7, at: "2026-11-24T02:00:00Z", title: "Alice", from: "Alice", text: "私信问一下", keys: ["slack:D0ABCDEFG:1794968300.000100"], reply: { channel: "D0ABCDEFG", ts: "1794968300.000100" } })],
+    [8, ev({ id: 8, at: "2026-11-24T04:00:00Z", source: "github", kind: "github.pr", title: "AfterShip/admin#10797 fix", url: "https://github.com/AfterShip/admin/pull/10797", from: null, text: "approve 了", reply: { ref: "AfterShip/admin#10797" } })],
+    [9, ev({ id: 9, at: "2026-11-24T05:00:00Z", source: "session", kind: "session.update", title: "会话", text: "做完了" })],
+    [10, ev({ id: 10, source: "jira", kind: "jira.issue", title: "RTC-1 做个东西", url: "https://aftership.atlassian.net/browse/RTC-1", reply: { key: "RTC-1" } })],
   ]);
   const of = (id: number) => events.get(id) ?? null;
 
-  it("最早一条真消息（补交的提醒不算），Slack 拼链接", () => {
-    expect(originOf(thing({ events: [9, 5, 3] }), of, "aftership", null)).toEqual({ source: "slack", label: "#proj-warranty", url: "https://aftership.slack.com/archives/C0BAEDD58H1/p1794968277845879" });
+  it("按对话合起来、最近的在前；会话汇报和补交的提醒不算；最早来的那处标 first", () => {
+    const list = talksOf(thing({ events: [3, 5, 6, 7, 8, 9] }), of, "aftership");
+    expect(list.map((x) => [x.source, x.label, x.count])).toEqual([["github", "admin#10797", 1], ["slack", "#proj-rtc", 2], ["slack", "Alice", 1]]);
+    expect(list[1]).toMatchObject({ first: true, said: "Bob：我再看看", url: "https://aftership.slack.com/archives/C0BAEDD58H1/p1794968299000100?thread_ts=1794968277.845879&cid=C0BAEDD58H1" });
+    expect(list[0]!.url).toBe("https://github.com/AfterShip/admin/pull/10797");
   });
 
-  it("没有消息的看键：Slack thread、Jira、PR", () => {
-    expect(originOf(thing({ keys: ["slack:C0BAEDD58H1:1794968277.845879"] }), of, "aftership", null)?.url).toBe("https://aftership.slack.com/archives/C0BAEDD58H1/p1794968277845879");
-    expect(originOf(thing({ keys: ["RTC-34362"] }), of, null, "aftership.atlassian.net")).toEqual({ source: "jira", label: "RTC-34362", url: "https://aftership.atlassian.net/browse/RTC-34362" });
-    expect(originOf(thing({ keys: ["github.com/aftership/shop/pull/7"] }), of, null, null)).toEqual({ source: "github", label: "shop#7", url: "https://github.com/aftership/shop/pull/7" });
-    expect(originOf(thing({}), of, null, null)).toBeNull();
+  it("没有消息的看 Slack thread 键补一处；什么都没有是空的", () => {
+    expect(talksOf(thing({ keys: ["slack:C0BAEDD58H1:1794968277.845879"] }), of, "aftership")[0]?.url).toBe("https://aftership.slack.com/archives/C0BAEDD58H1/p1794968277845879");
+    expect(talksOf(thing({ keys: ["RTC-1"] }), of, "aftership")).toEqual([]);
   });
 
   it("从 Jira 消息的地址认出站点", () => {
@@ -120,6 +146,19 @@ describe("查一轮", () => {
     expect(out.jira["RTC-1"]?.status).toBe("Test In Progress");
     expect(out.prs["github.com/a/b/pull/3"]).toMatchObject({ state: "open", draft: true });
     expect(out.errors).toEqual({});
+  });
+
+  it("标题里写了单号的也查；连着失败记下从什么时候开始，好了就清掉", async () => {
+    const asked: string[] = [];
+    const deps = { jira: { cli: cli(async (jql) => { asked.push(jql); return [issue("RTC-5", "OPEN")] as never; }), site: "x" }, gh: null, slackWorkspace: null, site: null };
+    await collectLinks([thing({ title: "RTC-5 状态卡" })], [], () => null, deps, EMPTY_LINKS, signal);
+    expect(asked).toEqual(["key in (RTC-5)"]);
+    const bad = { ...deps, jira: { cli: cli(async () => { throw new Error("acli 没登录 Jira"); }), site: "x" } };
+    const first = await collectLinks([thing({ keys: ["RTC-5"] })], [], () => null, bad, EMPTY_LINKS, signal, new Date("2026-11-24T00:00:00Z"));
+    const again = await collectLinks([thing({ keys: ["RTC-5"] })], [], () => null, bad, first, signal, new Date("2026-11-24T00:10:00Z"));
+    expect(again.failingSince.jira).toBe("2026-11-24T00:00:00.000Z");
+    const ok = await collectLinks([thing({ keys: ["RTC-5"] })], [], () => null, deps, again, signal);
+    expect(ok.failingSince).toEqual({});
   });
 
   it("Jira 没登录：记下为什么，接着用上一轮查到的", async () => {

@@ -477,7 +477,7 @@ describe("策略能自己加、approve、进度表", () => {
     run(h, JSON.stringify({ stage: "QA 用例评审" }), "thing", "update", id);
     t = JSON.parse(chief(h, "thing", "list"))[0];
     expect(t.stage.id).toBe("casereview");
-    expect(t.log.at(-1).text).toBe("阶段：QA 用例评审");
+    expect(t.log.at(-1).text).toBe("阶段：用例评审中");
     run(h, JSON.stringify({ stage: "" }), "thing", "update", id);
     expect(JSON.parse(chief(h, "thing", "list"))[0].stage).toBeUndefined();
   });

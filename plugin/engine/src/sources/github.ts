@@ -39,11 +39,12 @@ export function findGh(): string | null {
   return null;
 }
 
-export function ghRunner(bin: string): GhRunner {
+// timeoutMs：查 PR 状态（带 CI 结果）的那种慢一些，给长一点。
+export function ghRunner(bin: string, timeoutMs = 30_000): GhRunner {
   return async (args, signal) => {
-    const out = await runProgram(bin, args, { cwd: homedir(), timeoutMs: 30_000, network: true, signal, maxOutput: 8 * 1024 * 1024 });
+    const out = await runProgram(bin, args, { cwd: homedir(), timeoutMs, network: true, signal, maxOutput: 8 * 1024 * 1024 });
     if (out.aborted) throw new SourceError("取消了");
-    if (out.timedOut) throw new SourceError("gh 30 秒没回应");
+    if (out.timedOut) throw new SourceError(`gh ${Math.round(timeoutMs / 1000)} 秒没回应`);
     if (out.code !== 0) {
       const why = out.stderr.trim().split("\n").at(-1)?.slice(0, 200) ?? "";
       throw new SourceError(/auth|login|token/i.test(why) ? "gh 没登录，到终端里跑 gh auth login" : `gh 出错了：${why}`);

@@ -70,20 +70,21 @@ git merge upstream/main
 
 ## fork 自己加的功能
 
-### 0.4.1–0.4.2：事项卡上的阶段和标签（2026-11-24）
+### 0.5.0：进度页的状态表（2026-11-25）
 
-- **标签行**（`hooks/tags.tsx`）：「进度」页每件事、「要你」页每张事情卡的标题下面一行，都能点：
-  - 从哪来：这件事最早那条消息（Slack 拼出消息链接，Jira / GitHub 用原地址，会话的点了跳到会话）。
-  - 需求：挂的 Jira 单，子任务自动换成父需求，显示 Jira 状态。
-  - PR：草稿 / 待 review / 要改 / 已 approve / 已合并，开着的带 CI（✓ / ✗ CI / … CI）。
-  - 「要你」页的回复卡上多一个「原消息 ↗」。
-  - 只打开 Slack / Atlassian / GitHub / Notion 的 https 地址（`actions.ts` 的 `openUrl`）。
-- **阶段**（`engine/src/shared/stage.ts`）：标题前的 `[开发中]` 这种。来源两个：
-  - 需求的 Jira 状态换算：OPEN→待开始、Under development→开发中、Test In Progress→测试中、Acceptance Check→验收中、Ready To Deploy→待发布、Test In Production→线上验证、Released→已发布、ON HOLD→暂停、Closed/Resolved→完成。
-  - 工作会话汇报「阶段：…」（`chief thing update T` 标准输入 JSON 的 `stage`）：方案中、QA 用例评审这些 Jira 上看不出（都还是 OPEN），Jira 在待开始 / 开发中时用汇报的。
-  - 改词表、映射：改 `stage.ts` 的 `STAGES`、`STAGE_LABELS`、`JIRA`、`ALIASES`，测试在 `engine/test/links.spec.ts`。
-- **状态从哪来**（`engine/src/links.ts`）：引擎起来查一次、之后每 10 分钟，用 acli（Jira）和 gh（GitHub）查没办完的事情挂的单子和 PR，写进 `~/chief/data/links.json`，面板读它。查不成（比如 acli 没登录）时接着用上一轮的，进度页顶上一行黄字说为什么。
-- hub 的派活模板（`skills/hub/handoff.md`）和「chief 进展」的处理（`SKILL.md`）加了「阶段」。
+- **状态表**（`hooks/tabs/things.tsx`）：进度页最上面一行是每个阶段几件（加卡住、暂停几件），下面每件事一行：
+  - 第一行：阶段（带颜色的边框块）、标记（会话在等你回答、过期 / 快到期、卡住、暂停、等你定）、标题、多久以前有动静和截止。
+  - 第二行标签，都能点（`hooks/tags.tsx`）：在哪讨论过（一个渠道一个：💬 Slack、🎫 Jira、🔀 GitHub、📄 Notion，一处写名字、几处写「Slack · 2 处」，点开那个渠道最近一条）、关联的需求（Jira 子任务换成父需求，标题里写的单号也算）、PR（review 和 CI）、🧵 会话。
+  - 点标题展开：每处讨论各一行（几条、多久以前、最早从哪来，能点开），下面是最近说的；再是下一步、现在、结果和操作。
+  - 按阶段从前到后排，同一阶段里要你留意的在前。「要你」页的事情卡也有阶段和这行标签。
+- **颜色**：App 把按钮里的字一律画成同一个颜色，所以颜色只用边框和按钮外面的字（阶段、标记是不能点的边框块，标签是边框里放按钮）。
+- **阶段**（`engine/src/shared/stage.ts`）：计划中 → 方案中 → 开发中 → 用例评审中 → 测试中 → 待发布 → 已上线；「暂停」「卡住」是标记。依次取：
+  1. 需求的 Jira 状态：OPEN→计划中、Under development→开发中、Test In Progress / Acceptance Check→测试中、Ready To Deploy→待发布、Released / Test In Production / Closed→已上线、ON HOLD→暂停。
+  2. 会话汇报的（`chief thing update T` 标准输入 JSON 的 `stage`）：只在 Jira 还是 OPEN 时用，补上方案中、用例评审中。
+  3. 没有 Jira：汇报的，再没有看 PR（有开着的算开发中，全合了算待发布）。
+  - 改词表、映射：改 `stage.ts` 的 `STAGES`、`STAGE_LABELS`、`ALIASES`、`JIRA`，测试在 `engine/test/links.spec.ts`。
+- **数据**（`engine/src/links.ts`）：引擎起来查一次、之后每 10 分钟，用 acli 查 Jira 单（和父需求）、gh 查 PR（90 秒超时），把每件事的消息按渠道和对话合起来，写进 `~/chief/data/links.json`。查不成接着用上一轮的；连着失败超过半小时，进度页顶上才有一行黄字。
+- hub 的派活模板（`skills/hub/handoff.md`）和「chief 进展」的处理（`SKILL.md`）带「阶段」。
 
 ## 本机换源记录（2026-11-24）
 

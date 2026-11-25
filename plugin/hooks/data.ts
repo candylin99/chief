@@ -112,7 +112,7 @@ export async function refresh($: Engine) {
     undo: [...(undo.items ?? [])].reverse(),
     locale,
     reread: pv !== null && readAt !== pv,
-    links: { at: links.at ?? null, jira: links.jira ?? {}, prs: links.prs ?? {}, origins: links.origins ?? {}, messages: links.messages ?? {}, errors: links.errors ?? {}, jiraSite: links.jiraSite ?? null },
+    links: { at: links.at ?? null, jira: links.jira ?? {}, prs: links.prs ?? {}, talks: links.talks ?? {}, messages: links.messages ?? {}, errors: links.errors ?? {}, failingSince: links.failingSince ?? {}, jiraSite: links.jiraSite ?? null },
     hubMode: ((activity as Record<string, unknown>)._hub as { permissionMode?: string | null } | undefined)?.permissionMode ?? null,
   }
   await update($, snap, () => next)

@@ -56,14 +56,16 @@ export type ThingRow = {
 // links.json：事情关联的 Jira 单、PR 现在什么状态、从哪来的（引擎每 10 分钟查一次）。
 export type JiraLink = { key: string; title: string; status: string; category: string | null; type: string | null; parent?: string; url: string }
 export type PrLink = { ref: string; url: string; title: string; state: 'open' | 'merged' | 'closed'; draft: boolean; review: 'approved' | 'changes' | 'required' | null; ci: 'pass' | 'fail' | 'pending' | null }
-export type OriginLink = { source: string; label: string; url: string | null }
+// 一件事在哪讨论过：一个渠道里的一处对话，合成一条（几条消息、最近一条的时间和内容、能点开的地址；first 是最早来的那处）。
+export type TalkLink = { source: string; label: string; count: number; lastAt: string; said: string; url: string | null; first?: true }
 export type LinksFile = {
   at: string | null
   jira: Record<string, JiraLink>
   prs: Record<string, PrLink>
-  origins: Record<string, OriginLink>
+  talks: Record<string, TalkLink[]>
   messages: Record<string, string>
   errors: Record<string, string>
+  failingSince: Record<string, string>
   jiraSite?: string | null
 }
 
