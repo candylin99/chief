@@ -1433,6 +1433,22 @@ describe("引擎发之前再核一遍", () => {
     expect(rows(h)[0]!.sentAt).toBeTruthy();
   });
 
+  it("规矩允许直接发的：你已经在那段对话里亲自说过话了，不替你发，放回待确认、标出来、弹通知", async () => {
+    const h = setup();
+    edit(h, (r) => Object.assign(r, { status: "queued", by: "policy", sendAt: new Date(Date.now() - 1000).toISOString() }));
+    writeFileSync(join(h, "state.json"), JSON.stringify({ nextId: 2, since: {}, seen: [], threads: [], sent: [], spoke: { "slack:D0ALICE:1795079290.188699": new Date().toISOString() } }));
+    await engineIn(h, async (e, sent, notes) => {
+      await e.sendDue();
+      expect(sent).toHaveLength(0);
+      expect(notes.join()).toContain("亲自说过话");
+    });
+    const r = rows(h)[0]! as Row & { selfReplied?: { at: string } };
+    expect(r.status).toBe("pending");
+    expect(r.selfReplied?.at).toBeTruthy();
+    expect(r.by).toBeUndefined();
+    expect(r.sendAt).toBeUndefined();
+  });
+
   it("发的时候出错：failed，写明为什么，弹通知", async () => {
     const h = setup();
     sendByYou(h, "1");

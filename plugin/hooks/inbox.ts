@@ -29,6 +29,8 @@ export type Card = {
   replies: ReplyRow[]
   // 正在发的（5 秒内能撤回）。
   sending: ReplyRow[]
+  // 今天被过时清扫收起的 approve 卡（PR 合了 / 关了 / 你自己 approve 过）：一行灰字，能恢复。
+  swept: ReplyRow[]
   // 越小越急：0 会话等你点、1 过期或今天截止、2 有回复没发出去、3 两天内截止、4 其余。
   rank: number
   // 最近一条等你的什么时候来的（同样急的，新的在前）。
@@ -62,7 +64,7 @@ export function inboxOf(s: Snapshot, now = Date.now()): Inbox {
   const card = (key: string, thing: ThingRow | null): Card => {
     let c = byKey.get(key)
     if (!c) {
-      c = { key, thing, waiting: null, session: thing?.session ?? null, asks: [], closed: [], replies: [], sending: [], rank: 4, since: '' }
+      c = { key, thing, waiting: null, session: thing?.session ?? null, asks: [], closed: [], replies: [], sending: [], swept: [], rank: 4, since: '' }
       byKey.set(key, c)
     }
     return c
@@ -98,9 +100,10 @@ export function inboxOf(s: Snapshot, now = Date.now()): Inbox {
     const c = t ? ofThing(t) : null
     if (r.status === 'pending' || r.status === 'failed') (c ?? card(`r${r.id}`, null)).replies.push(r)
     else if (r.status === 'queued' || r.status === 'sending') (c ?? card(`r${r.id}`, null)).sending.push(r)
+    else if (r.stale && Date.parse(r.stale.at) >= dayStart) (c ?? card(`r${r.id}`, null)).swept.push(r)
   }
 
-  const cards = [...byKey.values()].filter(c => c.waiting || c.asks.length > 0 || c.closed.length > 0 || c.replies.length > 0 || c.sending.length > 0)
+  const cards = [...byKey.values()].filter(c => c.waiting || c.asks.length > 0 || c.closed.length > 0 || c.replies.length > 0 || c.sending.length > 0 || c.swept.length > 0)
   const shown = new Set(cards.map(c => c.thing?.id))
   for (const c of cards) {
     // 新问的在前。
@@ -109,7 +112,7 @@ export function inboxOf(s: Snapshot, now = Date.now()): Inbox {
     if (c.thing) c.closed.push(...s.asks.filter(a => a.thing === c.thing!.id && a.status === 'withdrawn' && a.closedAt !== undefined && Date.parse(a.closedAt) >= dayStart))
     // 还在等你的里面最新的一条；只剩刚定的、撤掉的，就看那些。
     const waitingOn = [c.waiting ? c.since : '', ...c.asks.map(a => a.at), ...c.replies.map(r => r.at), ...c.sending.map(r => r.at)].filter(Boolean).sort()
-    const done = c.closed.map(a => a.closedAt ?? a.at).sort()
+    const done = [...c.closed.map(a => a.closedAt ?? a.at), ...c.swept.map(r => r.stale!.at)].sort()
     c.since = waitingOn.at(-1) ?? done.at(-1) ?? ''
     const left = c.thing?.due === undefined ? null : daysLeft(c.thing.due)
     c.rank = c.waiting ? 0 : left !== null && left <= 0 ? 1 : c.replies.some(r => r.status === 'failed') ? 2 : left !== null && left <= 2 ? 3 : 4

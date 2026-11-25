@@ -92,6 +92,12 @@ export interface Reply {
   feedback?: string;
   at: string;
   url?: string;
+  // 过时清扫收起的（见 sweep.ts）：approve 的 PR 已合并 / 已关闭 / 你自己 approve 过；was 是收起前的状态，「不对，恢复」放回去。
+  stale?: { why: "merged" | "closed" | "approved"; at: string; was: "pending" | "failed" };
+  // 你点过「不对，恢复」：以后不再自动收。
+  staleIgnored?: true;
+  // 卡片生成之后你本人在那段 Slack 对话里说过话（最近那次的时间）：卡上提醒「你可能已经亲自回过」，规矩也不替你自动发。
+  selfReplied?: { at: string };
 }
 
 export interface RepliesFile {
@@ -156,6 +162,8 @@ export interface PrLink {
   draft: boolean;
   review: "approved" | "changes" | "required" | null;
   ci: "pass" | "fail" | "pending" | null;
+  // 你自己在这个 PR 上 approve 过（过时清扫据此收起 approve 卡）。
+  approvedByMe?: boolean;
 }
 
 // 一件事在哪讨论过：一个渠道里的一处对话（一个 Slack 频道 / thread、一张 Jira 单的评论、一个 PR 的评论），合成一条。

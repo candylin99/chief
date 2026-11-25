@@ -16,6 +16,7 @@ import { wakeDue } from "./snooze";
 import { KeychainStore, type SecretStore } from "./secrets";
 import { keysOf } from "./keys";
 import { EMPTY_LINKS, collectLinks, siteFromEvents } from "./links";
+import { askStaleEvent, spokeAfter, staleAsks, sweepReplies } from "./sweep";
 import { findGh, ghRunner } from "./sources/github";
 import { findJiraCli, type JiraCli } from "./sources/jira";
 import { DATA_HEALTH } from "./shared/rules";
@@ -265,6 +266,8 @@ export class Engine {
   private linking = false;
   // 查 Jira 单状态用的命令行和站点（第一次查时认出来，没认出来下次再试）。
   private jiraCli: { cli: JiraCli; site: string } | null = null;
+  // 你的 GitHub 登录名（认出你自己 approve 过的 PR），第一次查 PR 时问一次 gh。
+  private ghLogin: string | null = null;
   // 每个来源最近一次收 / 拉的结果，跟心跳一起写进 engine.json，面板拿它把连不上的来源标红。
   private readonly health: Record<string, SourceHealth> = {};
   private readonly startedAt = Date.now();
@@ -360,6 +363,14 @@ export class Engine {
         }
       }
       const gh = this.enabled.github ? findGh() : null;
+      if (gh && this.ghLogin === null) {
+        try {
+          const login = (await ghRunner(gh)(["api", "user", "--jq", ".login"], this.abort.signal)).trim();
+          if (/^[A-Za-z0-9-]{1,39}$/.test(login)) this.ghLogin = login;
+        } catch {
+          // 查不到登录名：这一轮不认「你自己 approve 过」，下一轮再问。
+        }
+      }
       const events = readEvents();
       const byId = new Map(events.map((e) => [e.id, e]));
       const eventOf = (id: number) => byId.get(id) ?? archivedEvent(id);
@@ -367,6 +378,7 @@ export class Engine {
       const out = await collectLinks(loadThings().things, loadReplies().items, eventOf, {
         jira: this.jiraCli,
         gh: gh ? ghRunner(gh, 90_000) : null,
+        me: this.ghLogin,
         slackWorkspace: loadSettings().slackWorkspace ?? null,
         site: this.jiraCli?.site ?? siteFromEvents(events),
       }, prev, this.abort.signal);
@@ -374,10 +386,28 @@ export class Engine {
       writeJson(paths().links, out);
       const errs = Object.entries(out.errors).map(([k, v]) => `${k}：${v}`).join("；");
       log(`[links] 单子 ${Object.keys(out.jira).length} 张、PR ${Object.keys(out.prs).length} 个${errs ? `；没查成：${errs}` : ""}`);
+      this.sweep(out, eventOf);
     } catch (error) {
       if (!this.abort.signal.aborted) log(`[links] 查关联的单子、PR 没成：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       this.linking = false;
+    }
+  }
+
+  // 过时清扫（见 sweep.ts）：approve 卡的 PR 合了 / 关了 / 你自己 approve 过的收起；你已经亲自在那段对话里说过话的回复卡标出来；
+  // 挂的东西办完了的问题交给主会话判断。只改 chief 自己的待办、发事件，不对外发任何东西。测试直接调。
+  sweep(links: LinksFile, eventOf: (id: number) => ChiefEvent | null, now = new Date()): void {
+    try {
+      const spoke = this.state.spoke ?? {};
+      const { closed, flagged } = updateReplies((all) => sweepReplies(all.items, links, eventOf, spoke, now));
+      for (const r of closed) log(`[sweep] approve ${r.target.ref ?? ""} 收起了：${r.stale?.why}`);
+      for (const r of flagged) log(`[sweep] 回复 ${r.id}：你可能已经亲自回过了`);
+      const t = loadThings();
+      for (const x of staleAsks(t.things, t.asks, links)) {
+        if (this.emit(askStaleEvent(x, now), `askstale:${x.ask.id}:${x.key}`)) this.persist();
+      }
+    } catch (error) {
+      log(`[sweep] 清扫没成：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -543,6 +573,8 @@ export class Engine {
           if (!this.state.seen.includes(m.deliveryId)) this.state.seen.push(m.deliveryId);
           return;
         }
+        // 你本人（在别的端）说的话：记下这段对话你最近一次说话的时间，过时清扫拿它看回复卡是不是你已经亲自回过了。
+        if (m.role === "self") this.state.spoke = { ...(this.state.spoke ?? {}), [m.conversation.threadKey]: m.occurredAt };
         // 你说过话的、找过你的 thread：后续也算跟你有关。
         if (m.role === "self" || m.relevance !== null) {
           if (!this.state.threads.includes(m.conversation.threadKey)) this.state.threads.push(m.conversation.threadKey);
@@ -596,6 +628,15 @@ export class Engine {
       const events = due.length > 0 ? readEvents() : [];
       for (const r of due) {
         const event = r.kind === "message" ? null : events.find((e) => e.id === r.event) ?? archivedEvent(r.event) ?? null;
+        // 规矩允许直接发的：你在那段对话里已经亲自说过话了，就不替你发，放回待确认（你点的发送照发）。
+        const self = r.by === "policy" ? spokeAfter(r, event, this.state.spoke ?? {}) : null;
+        if (self) {
+          if (!this.record(r.id, { status: "pending", selfReplied: { at: self } })) log(`回复 ${r.id} 放回待确认没记上`);
+          else updateReplies((all) => { const x = all.items.find((y) => y.id === r.id); if (x) { delete x.sendAt; delete x.by; } });
+          log(`回复 ${r.id} 没替你发：你已经在那段对话里说过话了，放回待确认`);
+          notify(msg().replySelfTitle, `${r.context.who ?? r.context.where}${msg().colon}${msg().replySelf}`);
+          continue;
+        }
         const bad = sendCheck(r, pol!, event);
         if (bad !== null) {
           if (!this.record(r.id, { status: "failed", error: bad })) log(`回复 ${r.id} 没核过，结果也没记上（下次引擎启动会标成要你看一眼）`);

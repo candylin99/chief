@@ -145,6 +145,11 @@ export async function explainAsk($: Engine, id: number, asked: string, label: st
   await tell($, `chief：问题 #${id} 先问清楚：${asked}`, label)
 }
 
+// 过时清扫收起的 approve 卡，你说「不对，恢复」：放回原来的状态，以后不再自动收（不用告诉主会话）。
+export async function restoreReply($: Engine, id: number, label: string) {
+  await act($, label, ['reply', 'unstale', String(id)])
+}
+
 // 「不用问了」：这件不做，也不再问；交给主会话告诉那件事的会话。
 export async function dismissAsk($: Engine, id: number, label: string) {
   if (!(await act($, label, ['ask', 'dismiss', String(id)]))) return

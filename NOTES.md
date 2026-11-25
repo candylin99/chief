@@ -92,6 +92,14 @@ git merge upstream/main
 - 「照办」旁边多一个**先问清楚**：点开可以写想知道什么，不写就问「背景、为什么这么建议、不照办会怎样」。面板先 `chief ask explain Q --ask` 记下在问（卡上显示「在问清楚：…」），再发「chief：问题 #Q 先问清楚：…」给消息中心；消息中心转给提出问题的会话，会话回「chief 解释 #Q」，消息中心 `chief ask explain Q` 写回，卡上整段显示「解释」。问题一直开着，不算你的决定。
 - 改法：引擎 `engine/src/commands/things.ts` 的 `ask`；面板 `hooks/tabs/now.tsx` 的 askCard、`hooks/actions.ts` 的 `explainAsk`；说明 `skills/hub/SKILL.md`、`panel-commands.md`、`handoff.md`。
 
+### 0.7.0：过时清扫（2026-11-25）
+
+引擎每 10 分钟查完单子和 PR（links.ts）顺带清扫一遍待办（`engine/src/sweep.ts`，`Engine.sweep`），只改 chief 自己的待办、发提醒，不对外发任何东西：
+1. **approve 卡**（等你点的、没发出去的）：PR 已合并 / 已关闭 / 你自己 approve 过（`gh pr view` 带 reviews，你的登录名用 `gh api user` 问一次）→ 收起（status 改 dropped，记 `stale: {why, at, was}`）。「要你」页那件事的卡上留一行灰字和「不对，恢复」（`chief reply unstale R`，放回原状态并记 `staleIgnored`，以后不再收）。等你点的 approve 卡要 approve 的 PR 就算没挂在事情上也会查。
+2. **待发出的 Slack 回复**：引擎记下你本人（在别的端）每段对话最近一次说话的时间（state.json 的 `spoke`，对话的键和收到的消息一样）；卡片生成之后你说过话 → 卡上标 `selfReplied`「你可能已经亲自回过」，不收不发。规矩允许直接发、正在排队的，发之前也查，查到就放回待确认、弹通知（你点的发送照发）。只看 Slack。
+3. **要你定的问题**：问题那件事挂的 PR 合了 / 关了、Jira 做完了，或问题和建议里提到的 PR / 单号办完了 → 交给主会话一条 `ask.stale` 事件（每个问题、每个键只一次），主会话判断撤不撤（SKILL.md）。
+4. **可以收尾**：挂的 PR 都合了（至少合了一个、没有开着的）、需求的 Jira 都做完了 → 事情的标记里多一个绿色「可以收尾」（面板算，`hooks/tags.tsx` 的 `canWrap`），只提示，不替你标办完。
+
 ### 0.6.1–0.6.2：不再重复提交（2026-11-25）
 
 - **面板点两下发两次**：面板上的按钮是往消息中心发一句「chief：…」，消息中心在忙时点了没动静，人会再点，以前每点一下都发一次（实际出现过「问进展」18 秒内两次、「重读规则」36 秒内两次）。现在同一句话两分钟内只发一次，第二下只提示「刚交给主会话了」（`hooks/actions.ts` 的 `tell` / `seenRecently`）。

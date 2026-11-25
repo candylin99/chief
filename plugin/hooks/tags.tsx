@@ -113,7 +113,18 @@ export function flagsOf(s: Snapshot, th: ThingRow): { key: string; text: string;
   if (th.blocker) out.push({ key: 'blk', text: w.blocked, tone: 'error' })
   if (thingStage(s, th).paused) out.push({ key: 'pause', text: t().tags.paused, tone: 'inactive' })
   if (s.asks.some(a => a.thing === th.id && a.status === 'open')) out.push({ key: 'ask', text: w.waitingYou, tone: 'warning' })
+  if (canWrap(s, th)) out.push({ key: 'wrap', text: w.canWrap, tone: 'success' })
   return out
+}
+
+// 可以收尾：挂着的 PR 都合了（或关了、至少合了一个）、需求的 Jira 都做完了；有查不到状态的不算。只提示，不替你标办完。
+export function canWrap(s: Snapshot, th: ThingRow): boolean {
+  const prs = prsOf(s, th)
+  const reqs = requirementsOf(s, th)
+  if (prs.length === 0 && reqs.length === 0) return false
+  if (prs.some(p => p.pr === null || p.pr.state === 'open')) return false
+  if (prs.length > 0 && !prs.some(p => p.pr?.state === 'merged')) return false
+  return reqs.every(r => r.link !== null && (r.link.category === 'done' || jiraStage(r.link.status, r.link.category) === 'live'))
 }
 
 // 阶段 · 标记……，一行彩色的粗字。

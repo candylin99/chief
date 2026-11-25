@@ -30,6 +30,11 @@ export type ReplyRow = {
   feedback?: string
   at: string
   url?: string
+  // 过时清扫收起的：为什么、收起前的状态（「不对，恢复」放回去）。
+  stale?: { why: 'merged' | 'closed' | 'approved'; at: string; was: 'pending' | 'failed' }
+  staleIgnored?: true
+  // 卡片生成之后你本人在那段 Slack 对话里说过话。
+  selfReplied?: { at: string }
 }
 
 export type ThingRow = {
@@ -55,7 +60,7 @@ export type ThingRow = {
 
 // links.json：事情关联的 Jira 单、PR 现在什么状态、从哪来的（引擎每 10 分钟查一次）。
 export type JiraLink = { key: string; title: string; status: string; category: string | null; type: string | null; parent?: string; url: string }
-export type PrLink = { ref: string; url: string; title: string; state: 'open' | 'merged' | 'closed'; draft: boolean; review: 'approved' | 'changes' | 'required' | null; ci: 'pass' | 'fail' | 'pending' | null }
+export type PrLink = { ref: string; url: string; title: string; state: 'open' | 'merged' | 'closed'; draft: boolean; review: 'approved' | 'changes' | 'required' | null; ci: 'pass' | 'fail' | 'pending' | null; approvedByMe?: boolean }
 // 一件事在哪讨论过：一个渠道里的一处对话，合成一条（几条消息、最近一条的时间和内容、能点开的地址；first 是最早来的那处）。
 export type TalkLink = { source: string; label: string; count: number; lastAt: string; said: string; url: string | null; first?: true }
 export type LinksFile = {

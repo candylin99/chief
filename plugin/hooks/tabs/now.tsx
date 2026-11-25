@@ -5,7 +5,7 @@
 import type { EngineInterface as Engine } from 'claude-code'
 
 import type { AskRow, DecisionRow, Snapshot } from '../../types'
-import { ackKeyAlerts, answerAll, answerAsk, decideProposal, dismissAsk, engineDo, explainAsk, openSession, reopenAsk, setTab, skipOld, tell, toggle } from '../actions'
+import { ackKeyAlerts, answerAll, answerAsk, decideProposal, dismissAsk, engineDo, explainAsk, openSession, reopenAsk, restoreReply, setTab, skipOld, tell, toggle } from '../actions'
 import { markReread } from '../data'
 import { inboxOf, type Card, type SysItem } from '../inbox'
 import { sourceName, t } from '../i18n'
@@ -123,7 +123,7 @@ export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], e
   // 不用底色（主题的 subtle 底在 App 里是深灰），也不用 Svg 细线（App 里看不出来）。过期、今天截止、会话在等你点的组，框是红的。
   const group = (c: Card) => {
     const th = c.thing
-    const title = th ? th.title : c.replies[0] ? whatOf(c.replies[0]) : c.sending[0] ? whatOf(c.sending[0]) : w.ask
+    const title = th ? th.title : c.replies[0] ? whatOf(c.replies[0]) : c.sending[0] ? whatOf(c.sending[0]) : c.swept[0] ? whatOf(c.swept[0]) : w.ask
     const due = th?.due === undefined ? undefined : dueLabel(th.due)
     const ready = c.asks.filter(q => q.suggest !== '')
     const counts = [c.waiting ? w.nWaiting : '', c.asks.length > 0 ? w.nAsks(c.asks.length) : '', c.replies.length > 0 ? w.nReplies(c.replies.length) : ''].filter(Boolean).join(' · ')
@@ -158,6 +158,13 @@ export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], e
         ))}
         {c.sending.map(r => sendingRow($, ui, r))}
         {c.closed.map(closedRow)}
+        {/* 过时清扫收起的 approve 卡：一行灰字说为什么，判断错了能恢复。 */}
+        {c.swept.map(r => (
+          <Box key={`sw${r.id}`} flexDirection="row" gap="sm" alignItems="center" marginTop="xs">
+            <Box flexShrink={1}><Text size="footnote" dimColor wrap="wrap">{w.swept(whatOf(r), w.sweptWhy[r.stale!.why])}</Text></Box>
+            <Button key={`rs${r.id}`} plain onPress={() => restoreReply($, r.id, w.restore)}>{w.restore}</Button>
+          </Box>
+        ))}
         {ready.length > 1 && (
           <Box flexDirection="row">
             <Button key={`all-${c.key}`} onPress={() => answerAll($, ready.map(q => q.id), w.allOk)}>{w.allN(ready.length)}</Button>

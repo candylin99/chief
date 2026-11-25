@@ -4,6 +4,7 @@
 import type { JiraCli } from "./sources/jira";
 import type { GhRunner } from "./sources/github";
 import { ticketKeysIn } from "./shared/stage";
+import { prKeyOfRef } from "./sweep";
 import type { ChiefEvent, JiraLink, LinksFile, PrLink, Reply, TalkLink, Thing } from "./shared/types";
 
 const JIRA_KEY = /^[A-Z][A-Z0-9]{1,9}-\d{1,7}$/;
@@ -107,7 +108,7 @@ export function talksOf(t: Thing, eventOf: (id: number) => ChiefEvent | null, wo
 // —— GitHub：gh pr view 的结果 → PR 的样子 ——
 
 interface Rollup { __typename?: string; status?: string; conclusion?: string | null; state?: string }
-interface GhPr { number?: number; title?: string; state?: string; isDraft?: boolean; reviewDecision?: string | null; statusCheckRollup?: Rollup[] | null; url?: string }
+interface GhPr { number?: number; title?: string; state?: string; isDraft?: boolean; reviewDecision?: string | null; statusCheckRollup?: Rollup[] | null; url?: string; reviews?: { author?: { login?: string }; state?: string }[] | null }
 
 const BAD = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"]);
 
@@ -120,7 +121,8 @@ export function ciOf(rollup: readonly Rollup[] | null | undefined): PrLink["ci"]
   return "pass";
 }
 
-export function prOf(key: string, raw: GhPr): PrLink {
+// me：你的 GitHub 登录名（认出你自己 approve 过没有）；不知道就不算。
+export function prOf(key: string, raw: GhPr, me: string | null = null): PrLink {
   const state = String(raw.state ?? "").toUpperCase();
   const review = String(raw.reviewDecision ?? "").toUpperCase();
   return {
@@ -131,6 +133,7 @@ export function prOf(key: string, raw: GhPr): PrLink {
     draft: raw.isDraft === true,
     review: review === "APPROVED" ? "approved" : review === "CHANGES_REQUESTED" ? "changes" : review === "REVIEW_REQUIRED" ? "required" : null,
     ci: state === "OPEN" ? ciOf(raw.statusCheckRollup) : null,
+    ...(me && (raw.reviews ?? []).some((r) => r.author?.login?.toLowerCase() === me.toLowerCase() && String(r.state).toUpperCase() === "APPROVED") ? { approvedByMe: true } : {}),
   };
 }
 
@@ -176,7 +179,7 @@ async function fetchJira(cli: JiraCli, site: string, keys: readonly string[], si
   return out;
 }
 
-async function fetchPrs(gh: GhRunner, keys: readonly string[], signal: AbortSignal): Promise<Record<string, PrLink>> {
+async function fetchPrs(gh: GhRunner, keys: readonly string[], signal: AbortSignal, me: string | null): Promise<Record<string, PrLink>> {
   const out: Record<string, PrLink> = {};
   let failed: unknown = null;
   for (let i = 0; i < keys.length; i += 5) {
@@ -184,7 +187,7 @@ async function fetchPrs(gh: GhRunner, keys: readonly string[], signal: AbortSign
       const url = prUrl(k);
       if (!url) return;
       try {
-        out[k] = prOf(k, JSON.parse(await gh(["pr", "view", url, "--json", "number,title,state,isDraft,reviewDecision,statusCheckRollup,url"], signal)) as GhPr);
+        out[k] = prOf(k, JSON.parse(await gh(["pr", "view", url, "--json", "number,title,state,isDraft,reviewDecision,statusCheckRollup,url,reviews"], signal)) as GhPr, me);
       } catch (error) {
         if (signal.aborted) throw error;
         failed = error;
@@ -199,6 +202,8 @@ async function fetchPrs(gh: GhRunner, keys: readonly string[], signal: AbortSign
 export interface LinkDeps {
   jira: { cli: JiraCli; site: string } | null;
   gh: GhRunner | null;
+  // 你的 GitHub 登录名（认出你自己 approve 过的 PR）。
+  me?: string | null;
   slackWorkspace: string | null;
   // Jira 站点（拼导入事情的单子链接用）；查 Jira 的话就是 jira.site。
   site: string | null;
@@ -215,7 +220,9 @@ export async function collectLinks(
   // 标题里写了单号、却没挂成键的，也查。
   const keys = active.flatMap((t) => [...(t.keys ?? []), ...ticketKeysIn(t.title)]);
   const jiraKeys = [...new Set(jiraKeysIn(keys))].slice(0, MAX_JIRA);
-  const prKeys = [...new Set(prKeysIn(keys))].slice(0, MAX_PRS);
+  // 等你点的、没发出去的 approve 卡要 approve 的 PR 也查：已合并、已关闭、你自己 approve 过的，过时清扫会收起那张卡。
+  const approvePrs = replies.flatMap((r) => (r.kind === "approve" && (r.status === "pending" || r.status === "failed") ? [prKeyOfRef(r.target.ref)] : [])).filter((k): k is string => k !== null);
+  const prKeys = [...new Set([...approvePrs, ...prKeysIn(keys)])].slice(0, MAX_PRS);
   const errors: Record<string, string> = {};
   const why = (e: unknown) => one(e instanceof Error ? e.message : String(e), 160);
 
@@ -237,7 +244,7 @@ export async function collectLinks(
   let prs: Record<string, PrLink> = Object.fromEntries(prKeys.flatMap((k) => (prev.prs[k] ? [[k, prev.prs[k]!]] : [])));
   if (deps.gh && prKeys.length > 0) {
     try {
-      prs = { ...prs, ...(await fetchPrs(deps.gh, prKeys, signal)) };
+      prs = { ...prs, ...(await fetchPrs(deps.gh, prKeys, signal, deps.me ?? null)) };
     } catch (error) {
       if (signal.aborted) throw error;
       errors.github = why(error);

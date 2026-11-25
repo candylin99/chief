@@ -6,7 +6,7 @@ import type { ReplyRow, Snapshot } from '../../types'
 import { act, openImage, redo, send, setEdit, toggle } from '../actions'
 import { sourceName, t } from '../i18n'
 import { messageLink } from '../tags'
-import { md, short, whatOf, type Els } from '../ui'
+import { ago, md, short, whatOf, type Els } from '../ui'
 
 export function replyCard($: Engine, ui: Els, s: Snapshot, edit: Record<string, string>, opened: string[], r: ReplyRow) {
   const { Box, Text, Button } = ui
@@ -53,6 +53,8 @@ export function replyCard($: Engine, ui: Els, s: Snapshot, edit: Record<string, 
         ))}
       {/* 主会话说你在会话里同意了，插件没核对上你亲口说过：不会自己发，等你点。 */}
       {r.confirmAsk && <Text size="footnote" color="warning" wrap="wrap">{w.confirmAsk}</Text>}
+      {/* 卡片生成之后你本人在那段对话里说过话：可能已经回过了，先看一眼。 */}
+      {r.selfReplied && <Text size="footnote" color="warning" wrap="wrap">{w.selfReplied(ago(r.selfReplied.at))}</Text>}
       {/* 附的图：发之前让你看到会跟着发出去哪几张。 */}
       {(r.images ?? []).length > 0 && (
         <Box flexDirection="row" gap="sm" flexWrap="wrap" alignItems="center">

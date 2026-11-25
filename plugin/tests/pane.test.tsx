@@ -708,6 +708,63 @@ test('单子、PR 连着半小时查不成才提醒', async ($, on) => {
   await ui.unmount()
 })
 
+test('过时清扫：收起的 approve 卡留灰字能恢复；亲自回过的回复卡有提醒；PR 合完、Jira 做完的事情标可以收尾', async ($, on) => {
+  const runs: string[] = []
+  on('command.register', () => ({ value: { command: 'chief' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  memStore(on)
+  on('clock.every', () => ({ value: { cancel: () => {} } }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  const ctx = { who: 'Marnie', where: '#proj-rtc', said: '能上吗', url: null }
+  const files: Record<string, string> = {
+    ...FILES,
+    '/Users/me/chief/data/things.json': JSON.stringify({
+      things: [
+        { id: 1, title: '寄回运单', status: 'doing', progress: '', keys: ['RTC-1', 'github.com/acme/shop/pull/547'], events: [], updatedAt: now, log: [] },
+      ],
+      asks: [],
+    }),
+    '/Users/me/chief/data/replies.json': JSON.stringify({
+      items: [
+        { id: 5, kind: 'approve', event: 9, thing: 1, source: 'github', target: { ref: 'acme/shop#547' }, context: { who: null, where: 'acme/shop#547', said: '', url: null }, body: '', status: 'dropped', at: now, stale: { why: 'merged', at: now, was: 'failed' } },
+        { id: 6, event: 10, thing: 1, source: 'slack', target: { channel: 'C1', ts: '1.0' }, context: ctx, body: '好的，今天上', status: 'pending', at: now, selfReplied: { at: now } },
+      ],
+    }),
+    '/Users/me/chief/data/links.json': JSON.stringify({
+      at: now,
+      jira: { 'RTC-1': { key: 'RTC-1', title: '寄回', status: 'Released', category: 'indeterminate', type: 'Story', url: 'https://acme.atlassian.net/browse/RTC-1' } },
+      prs: { 'github.com/acme/shop/pull/547': { ref: 'acme/shop#547', url: 'https://github.com/acme/shop/pull/547', title: 'x', state: 'merged', draft: false, review: 'approved', ci: null } },
+      talks: {}, messages: {}, errors: {}, failingSince: {},
+    }),
+  }
+  on('fs.read', (_, e) => {
+    if (e.path === '/Users/me/chief/data/bin/chief') return { value: '#!/bin/sh' }
+    const text = files[e.path]
+    if (text === undefined) throw new Error('missing')
+    return { value: text }
+  })
+  on('process.run', (_, e) => {
+    runs.push(e.argv.slice(1).join(' '))
+    if (e.argv[0] === '/usr/bin/env') return { value: { exitCode: 0, stdout: 'HOME=/Users/me\nPATH=/usr/bin\n', stderr: '' } }
+    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'chief', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // 收起的 approve 卡：灰字说为什么，「不对，恢复」跑 chief reply unstale。
+  await want(ui, { type: 'Text', text: /approve PR acme\/shop#547：自动收起了，PR 已合并/ })
+  await ui.press({ key: 'rs5' })
+  expect(runs.at(-1)).toBe('reply unstale 5')
+  // 亲自回过的回复卡：提醒先看一眼，按钮照常在。
+  await want(ui, { type: 'Text', text: /你在这段对话里已经亲自说过话了/ })
+  await want(ui, { key: 'sd6' })
+  // PR 合了、需求的 Jira 已上线：标可以收尾（只提示，不替你标办完）。
+  await want(ui, { type: 'Text', text: '可以收尾' })
+  expect(runs.some(r => r.startsWith('thing update'))).toBe(false)
+  await ui.unmount()
+})
+
 test('同一句话两分钟内只交一次，过了两分钟照常交', () => {
   expect(seenRecently('chief：测试去重', 0)).toBe(false)
   expect(seenRecently('chief：测试去重', 60_000)).toBe(true)

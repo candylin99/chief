@@ -7,6 +7,7 @@ import { fail, flag, flags, num, oneLine, oops, plainOnly, stdinRaw, stdinText }
 import { loadConfig } from "../config";
 import { autoReason, prsOf, replyHash } from "../gate";
 import { MAX_IMAGES, takeImage, type ReplyImage } from "../images";
+import { unstale } from "../sweep";
 import { isSourceId, type SourceMeta } from "../shared/sources";
 import { parsePermalink } from "../slack/people";
 import { SOURCES } from "../sources/registry";
@@ -280,6 +281,18 @@ export async function reply(args: string[]): Promise<void> {
     settleReplyAsks(id, "dropped");
     return;
   }
+  // chief reply unstale R：过时清扫收起的 approve 卡，你说「不对，恢复」：放回原来的状态，以后不再自动收。
+  if (sub === "unstale") {
+    const id = num(args.shift(), "回复号");
+    const out = updateReplies((all) => {
+      const r = all.items.find((x) => x.id === id) ?? oops(`没有回复 ${id}`);
+      if (!r.stale) oops(`回复 ${id} 不是自动收起的，不用恢复`);
+      unstale(r);
+      return { id: r.id, status: r.status };
+    });
+    process.stdout.write(`${JSON.stringify(out)}\n`);
+    return;
+  }
   if (sub === "redo") {
     const feedback = (await stdinText()).trim();
     updateReplies((all) => {
@@ -291,7 +304,7 @@ export async function reply(args: string[]): Promise<void> {
     settleReplyAsks(id, "redo");
     return;
   }
-  fail("chief reply add|approve|new|list|edit|edit-yours|queue|undo|drop|redo");
+  fail("chief reply add|approve|new|list|edit|edit-yours|queue|undo|drop|redo|unstale");
 }
 
 // 两份稿子算不算同一段话：去掉首尾空白、把连续的空白当成一个比。

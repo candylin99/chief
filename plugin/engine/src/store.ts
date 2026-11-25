@@ -163,6 +163,8 @@ export interface EngineState {
   sent: string[];
   // 每天汇总：每个时段上次发的是哪天（当地日期 YYYY-MM-DD），重启不重复发。
   digest?: Partial<Record<"morning" | "evening", string>>;
+  // 你在 Slack 上最近一次自己说话的时间（对话的键 → 时间），过时清扫看你是不是已经亲自回过（见 sweep.ts）。
+  spoke?: Record<string, string>;
 }
 
 const MAX_SEEN = 5000;
@@ -171,7 +173,7 @@ const MAX_SENT = 1000;
 
 export function loadState(): EngineState {
   const s = readJson<Partial<EngineState>>(paths().state, {});
-  return { nextId: s.nextId ?? 1, since: s.since ?? {}, seen: s.seen ?? [], threads: s.threads ?? [], sent: s.sent ?? [], digest: s.digest ?? {} };
+  return { nextId: s.nextId ?? 1, since: s.since ?? {}, seen: s.seen ?? [], threads: s.threads ?? [], sent: s.sent ?? [], digest: s.digest ?? {}, spoke: s.spoke ?? {} };
 }
 
 // 开着的来源（GitHub、Jira 用本机登录的 gh、acli 或 twg，没有密钥，靠这个记「开着」）。
@@ -197,6 +199,8 @@ export function saveState(s: EngineState): void {
   s.seen = s.seen.slice(-MAX_SEEN);
   s.threads = s.threads.slice(-MAX_THREADS);
   s.sent = s.sent.slice(-MAX_SENT);
+  // 只留最近说过话的 2000 段对话。
+  if (s.spoke) s.spoke = Object.fromEntries(Object.entries(s.spoke).sort((a, b) => b[1].localeCompare(a[1])).slice(0, 2000));
   writeJson(paths().state, s);
 }
 
