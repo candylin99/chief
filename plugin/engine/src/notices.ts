@@ -3,9 +3,11 @@
 // 加上了标 done，加不上（消息删了、没权限、Slack 没连上）标 failed 记下为什么。已经加过的、重复点的都只算一次。
 // 只做 Slack：GitHub、Jira 的通知没有对应的表情。@here / @channel 群发的、忽略的不出卡。
 // 一段对话（thread / 私信）在面板上只一张卡：点已读只在最新那条上加 :eyes:，同一段里更早没看的跟着算看过（covered），不一条条加。
+import { keysOf } from "./keys";
 import { messageUrl } from "./links";
+import { prKeyOfRef } from "./sweep";
 import { loadDecisions, loadSettings, paths, readEvents, readJson, updateJson } from "./store";
-import type { ChiefEvent, Notice, NoticesFile } from "./shared/types";
+import type { ChiefEvent, LinksFile, Notice, NoticesFile, Reply } from "./shared/types";
 
 export const EMPTY_NOTICES: NoticesFile = { items: [] };
 // 最多留多少条；看过的（done）7 天后清掉。
@@ -38,7 +40,7 @@ export function convOf(e: ChiefEvent): string {
 export function noticeOf(e: ChiefEvent, at: string, thing: number | null, workspace: string | null): Notice {
   return {
     event: e.id, at, who: e.from, where: e.title, text: e.text.replace(/\s+/g, " ").trim().slice(0, 300), url: messageUrl(e, workspace),
-    target: { channel: e.reply.channel!, ts: e.reply.ts! }, conv: convOf(e), status: "unread", ...(thing !== null ? { thing } : {}),
+    target: { channel: e.reply.channel!, ts: e.reply.ts! }, conv: convOf(e), msgAt: e.at, status: "unread", ...(thing !== null ? { thing } : {}),
   };
 }
 
@@ -129,4 +131,53 @@ export function backfill(hours: number, now = Date.now()): number {
     if (e) noteMarked([e], "noted", d.at, d.thing ?? null);
   }
   return loadNotices().items.length - before;
+}
+
+// 已经有回应的通知：不用你再点已读。消息之后——
+//   chief 在同一段对话里发出过回复（replied）或 approve（approved），或 approve 了这条消息里链着的 PR；
+//   这条消息里链着的 PR 你已经 approve 过、合了、关了（pr，看 links.json）；
+//   你自己在这段对话里说过话（self，看 state.json 的 spoke）。
+export function handledWhy(n: Notice, ctx: { replies: readonly Reply[]; eventOf: (id: number) => ChiefEvent | null; links: LinksFile; spoke: Record<string, string> }): Notice["handled"] | null {
+  const msgAt = n.msgAt ?? ctx.eventOf(n.event)?.at ?? n.at;
+  const prs = new Set(keysOf(n.text).filter((k) => k.includes("/pull/")));
+  for (const r of ctx.replies) {
+    if (r.status !== "sent" || (r.sentAt ?? r.at) < msgAt) continue;
+    if (r.kind === "approve") {
+      const key = prKeyOfRef(r.target.ref);
+      if (key && prs.has(key)) return "approved";
+    }
+    const e = ctx.eventOf(r.event);
+    if (e && n.conv && convOf(e) === n.conv) return r.kind === "approve" ? "approved" : "replied";
+  }
+  for (const k of prs) {
+    const p = ctx.links.prs[k];
+    if (p && (p.approvedByMe || p.state !== "open")) return "pr";
+  }
+  const spoke = n.conv ? ctx.spoke[n.conv] : undefined;
+  if (spoke && spoke >= msgAt) return "self";
+  return null;
+}
+
+// 引擎每分钟（和发出一条回复之后）跑：还没看的通知里，已经有回应的算看过、收起来，不加 :eyes:。返回收了哪些。
+export function settleNotices(ctx: Parameters<typeof handledWhy>[1], now = new Date()): number[] {
+  if (!loadNotices().items.some((x) => x.status === "unread" || x.status === "failed")) return [];
+  return updateNotices((n) => {
+    const settled: number[] = [];
+    for (const x of n.items) {
+      if (x.status !== "unread" && x.status !== "failed") continue;
+      const why = handledWhy(x, ctx);
+      if (!why) continue;
+      x.status = "done";
+      x.handled = why;
+      x.readAt = now.toISOString();
+      delete x.error;
+      settled.push(x.event);
+    }
+    return settled;
+  });
+}
+
+// 还没看的通知里链着的 PR：每轮查 links 时一起查，认出你已经 approve / 合了的。
+export function noticePrKeys(): string[] {
+  return [...new Set(loadNotices().items.filter((x) => x.status === "unread" || x.status === "failed").flatMap((x) => keysOf(x.text).filter((k) => k.includes("/pull/"))))];
 }

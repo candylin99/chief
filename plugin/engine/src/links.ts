@@ -204,6 +204,8 @@ export interface LinkDeps {
   gh: GhRunner | null;
   // 你的 GitHub 登录名（认出你自己 approve 过的 PR）。
   me?: string | null;
+  // 另外要查的 PR（还没看的通知里链着的）。
+  extraPrKeys?: readonly string[];
   slackWorkspace: string | null;
   // Jira 站点（拼导入事情的单子链接用）；查 Jira 的话就是 jira.site。
   site: string | null;
@@ -222,7 +224,7 @@ export async function collectLinks(
   const jiraKeys = [...new Set(jiraKeysIn(keys))].slice(0, MAX_JIRA);
   // 等你点的、没发出去的 approve 卡要 approve 的 PR 也查：已合并、已关闭、你自己 approve 过的，过时清扫会收起那张卡。
   const approvePrs = replies.flatMap((r) => (r.kind === "approve" && (r.status === "pending" || r.status === "failed") ? [prKeyOfRef(r.target.ref)] : [])).filter((k): k is string => k !== null);
-  const prKeys = [...new Set([...approvePrs, ...prKeysIn(keys)])].slice(0, MAX_PRS);
+  const prKeys = [...new Set([...approvePrs, ...prKeysIn(keys), ...prKeysIn(deps.extraPrKeys ?? [])])].slice(0, MAX_PRS);
   const errors: Record<string, string> = {};
   const why = (e: unknown) => one(e instanceof Error ? e.message : String(e), 160);
 

@@ -2,9 +2,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { backfill, loadNotices, noteMarked, noticeWorthy, queueRead, reactQueued } from "../src/notices";
+import { backfill, handledWhy, loadNotices, noteMarked, noticeWorthy, queueRead, reactQueued, settleNotices } from "../src/notices";
+import { EMPTY_LINKS } from "../src/links";
 import { appendDecision, appendEvent } from "../src/store";
-import type { ChiefEvent } from "../src/shared/types";
+import type { ChiefEvent, Notice, Reply } from "../src/shared/types";
 
 const ev = (over: Partial<ChiefEvent> = {}): ChiefEvent => ({
   id: 1, at: "2026-11-25T01:00:00Z", source: "slack", kind: "message.received", title: "#proj-rtc", url: null, from: "Jackson", fromId: "U0JACK",
@@ -104,5 +105,43 @@ describe("补出以前的", () => {
     expect(backfill(24, now)).toBe(1);
     expect(backfill(24, now)).toBe(0);
     expect(loadNotices().items.map((x) => x.event)).toEqual([1]);
+  });
+});
+
+describe("已经有回应的不用再点已读", () => {
+  const prMsg = ev({ id: 10, at: "2026-11-25T01:00:00Z", title: "Thor 的私信", why: ["dm"], keys: ["slack:D0THOR:dm"], reply: { channel: "D0THOR", ts: "1.0" }, text: "帮看下 PR 点个 approve https://github.com/AfterShip/shop/pull/547" });
+  const sent = (over: Partial<Reply>): Reply => ({ id: 1, event: 10, source: "slack", target: {}, context: { who: null, where: "", said: "", url: null }, body: "", status: "sent", at: "2026-11-25T01:05:00Z", sentAt: "2026-11-25T01:05:00Z", ...over });
+  const ctx = (over: Partial<Parameters<typeof handledWhy>[1]> = {}) => ({ replies: [], eventOf: (id: number) => (id === 10 ? prMsg : null), links: EMPTY_LINKS, spoke: {}, ...over });
+  const notice = (): Notice => { noteMarked([prMsg], "noted", "2026-11-25T01:01:00Z", null); return loadNotices().items[0]!; };
+
+  it("chief approve 了消息里的 PR、在同一段对话里回过：算看过", () => {
+    const n = notice();
+    expect(handledWhy(n, ctx({ replies: [sent({ kind: "approve", event: 99, target: { ref: "AfterShip/shop#547" } })] }))).toBe("approved");
+    expect(handledWhy(n, ctx({ replies: [sent({ kind: "reply" })] }))).toBe("replied");
+  });
+
+  it("PR 你已经 approve 过 / 合了：算看过；你自己在那段对话里说过话：算看过", () => {
+    const n = notice();
+    const pr = { ref: "AfterShip/shop#547", url: "", title: "", state: "open" as const, draft: false, review: null, ci: null };
+    expect(handledWhy(n, ctx({ links: { ...EMPTY_LINKS, prs: { "github.com/aftership/shop/pull/547": { ...pr, approvedByMe: true } } } }))).toBe("pr");
+    expect(handledWhy(n, ctx({ links: { ...EMPTY_LINKS, prs: { "github.com/aftership/shop/pull/547": { ...pr, state: "merged" } } } }))).toBe("pr");
+    expect(handledWhy(n, ctx({ spoke: { "slack:D0THOR:dm": "2026-11-25T01:10:00Z" } }))).toBe("self");
+  });
+
+  it("消息之前的回应、别的对话的回复、开着没 approve 的 PR：不算", () => {
+    const n = notice();
+    expect(handledWhy(n, ctx({ replies: [sent({ sentAt: "2026-11-25T00:30:00Z", at: "2026-11-25T00:30:00Z" })] }))).toBeNull();
+    expect(handledWhy(n, ctx({ replies: [sent({ event: 99 })] }))).toBeNull();
+    expect(handledWhy(n, ctx({ spoke: { "slack:D0THOR:dm": "2026-11-25T00:10:00Z" } }))).toBeNull();
+    expect(handledWhy(n, ctx())).toBeNull();
+  });
+
+  it("收起来、记为什么、不加 :eyes:；没回应的照旧留着", async () => {
+    noteMarked([prMsg, ev({ id: 11 })], "noted", "2026-11-25T01:01:00Z", null);
+    expect(settleNotices(ctx({ replies: [sent({ kind: "approve", event: 10, target: { ref: "AfterShip/shop#547" } })] }))).toEqual([10]);
+    expect(loadNotices().items.map((x) => [x.event, x.status, x.handled ?? null])).toEqual([[10, "done", "approved"], [11, "unread", null]]);
+    const calls: string[] = [];
+    await reactQueued(async (t) => void calls.push(t.ts));
+    expect(calls).toEqual([]);
   });
 });

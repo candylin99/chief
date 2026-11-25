@@ -17,7 +17,7 @@ import { KeychainStore, type SecretStore } from "./secrets";
 import { keysOf } from "./keys";
 import { EMPTY_LINKS, collectLinks, siteFromEvents } from "./links";
 import { askStaleEvent, spokeAfter, staleAsks, sweepReplies } from "./sweep";
-import { reactQueued } from "./notices";
+import { noticePrKeys, reactQueued, settleNotices } from "./notices";
 import { findGh, ghRunner } from "./sources/github";
 import { findJiraCli, type JiraCli } from "./sources/jira";
 import { DATA_HEALTH } from "./shared/rules";
@@ -382,6 +382,7 @@ export class Engine {
         jira: this.jiraCli,
         gh: gh ? ghRunner(gh, 90_000) : null,
         me: this.ghLogin,
+        extraPrKeys: noticePrKeys(),
         slackWorkspace: loadSettings().slackWorkspace ?? null,
         site: this.jiraCli?.site ?? siteFromEvents(events),
       }, prev, this.abort.signal);
@@ -394,6 +395,22 @@ export class Engine {
       if (!this.abort.signal.aborted) log(`[links] 查关联的单子、PR 没成：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       this.linking = false;
+    }
+  }
+
+  // 已经有回应的通知收起来（chief 回了 / approve 了、链着的 PR 你已处理、你自己说过话），不加 :eyes:。每分钟和发出回复之后跑。
+  settleNoticesNow(): void {
+    try {
+      const byId = new Map(readEvents().map((e) => [e.id, e]));
+      const settled = settleNotices({
+        replies: loadReplies().items,
+        eventOf: (id) => byId.get(id) ?? archivedEvent(id),
+        links: { ...EMPTY_LINKS, ...readJson<Partial<LinksFile>>(paths().links, {}) },
+        spoke: this.state.spoke ?? {},
+      });
+      if (settled.length > 0) log(`[notices] 已经有回应，收起 ${settled.length} 条`);
+    } catch (error) {
+      log(`[notices] 收起已回应的通知没成：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -452,6 +469,7 @@ export class Engine {
   // 每分钟对一次账：交出去的消息主会话有没有判断、主会话还在不在听。消息交出去不等于被处理了，这里兜底。
   private checkHealth(): void {
     this.rotateLog(config().logMaxMB * 1024 * 1024);
+    this.settleNoticesNow();
     this.digestTick();
     try {
       const n = flushHeld();
@@ -661,6 +679,8 @@ export class Engine {
         if (out.warning) notify(msg().imageFailedTitle, `${r.context.who ?? r.context.where}${msg().colon}${out.warning}`);
         if (!this.record(r.id, { status: "sent", sentAt: new Date().toISOString(), ...(out.url ? { url: out.url } : {}), ...(out.warning ? { error: out.warning } : {}) })) this.unrecorded.set(r.id, out);
       }
+      // 发出去了回复：那段对话的通知就不用你再点已读了。
+      if (due.length > 0) this.settleNoticesNow();
       // 你点了「已读 👀」的通知：在那条 Slack 消息上加 :eyes:（见 notices.ts）。
       const react = this.deps.react ?? (this.slack ? (t: { channel: string; ts: string }) => this.slack!.react(t, "eyes") : null);
       const seen = await reactQueued(react);

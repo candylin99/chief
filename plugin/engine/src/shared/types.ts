@@ -446,6 +446,10 @@ export interface Notice {
   conv?: string;
   // 跟着同一段对话里后来那条一起看过的：没单独加 :eyes:。
   covered?: true;
+  // 那条消息自己的时间（判断「之后有没有人回应」用）。
+  msgAt?: string;
+  // 已经有回应、自动算看过的（没加 :eyes:）：replied chief 替你回了；approved chief 替你 approve 了；pr 链接里的 PR 你已 approve / 合了 / 关了；self 你自己在那段对话里说过话。
+  handled?: "replied" | "approved" | "pr" | "self";
   thing?: number;
   status: "unread" | "queued" | "done" | "failed";
   queuedAt?: string;
