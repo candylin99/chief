@@ -545,7 +545,7 @@ test('稍后再说、撤回、搜以前的事', async ($, on) => {
   await ui.unmount()
 })
 
-test('进度页的状态表：每个阶段几件；每行阶段、标记、在哪讨论过、需求和 PR 的状态，点开只开认得的网址', async ($, on) => {
+test('进度页的状态表：每个阶段几件；每行阶段、标记、在哪讨论过、需求和 PR 的状态，都是只指向认得的网址的链接', async ($, on) => {
   const runs: string[] = []
   on('command.register', () => ({ value: { command: 'chief' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -616,41 +616,33 @@ test('进度页的状态表：每个阶段几件；每行阶段、标记、在�
   await want(ui, { type: 'Text', text: '已上线 1' })
   await want(ui, { type: 'Text', text: '没阶段 1' })
   await want(ui, { type: 'Text', text: '卡住了 1' })
-  // 每行：阶段、标记、标签。
-  await want(ui, { type: 'Text', text: '🎫 RTC-1 测试中' })
-  await want(ui, { type: 'Text', text: '🎫 RTC-7 计划中' })
-  await want(ui, { type: 'Text', text: '🎫 RTC-9 已上线' })
-  await want(ui, { type: 'Text', text: '🔀 #12 要改 · CI 挂了' })
-  await want(ui, { type: 'Text', text: '🔀 #13 已合并' })
-  await want(ui, { type: 'Text', text: '💬 Slack · 2 处' })
-  await want(ui, { type: 'Text', text: '🔀 shop#12' })
-  await want(ui, { type: 'Text', text: '🧵 会话' })
-  await want(ui, { type: 'Text', text: '卡在：等设计稿' })
-  // 子任务换成了父需求，不单独显示；GitHub 刚失败一次不提醒。
-  expect(await ui.find({ type: 'Text', text: /RTC-2/ })).toBeFalsy()
-  expect(await ui.find({ type: 'Text', text: /半小时没查成/ })).toBeFalsy()
-
-  // 点标签：用系统的 open 打开那个地址；Slack 两处的打开最近一条。
-  await ui.press({ key: 'tk1-slack' })
-  expect(runs.at(-1)).toBe('/usr/bin/open https://acme.slack.com/archives/C123/p1700000000000100')
-  await ui.press({ key: 'jr1-RTC-1' })
-  expect(runs.at(-1)).toBe('/usr/bin/open https://acme.atlassian.net/browse/RTC-1')
-  await ui.press({ key: 'pr1-github.com/acme/shop/pull/12' })
-  expect(runs.at(-1)).toBe('/usr/bin/open https://github.com/acme/shop/pull/12')
+  // 每行：阶段、标记（字），标签是链接，各指向自己的地址。
+  await want(ui, { type: 'Text', text: '卡住了' })
+  const href = async (text: string) => (await ui.find({ type: 'Link', text }))?.props.href
+  expect(await href('🎫 RTC-1 测试中')).toBe('https://acme.atlassian.net/browse/RTC-1')
+  expect(await href('🎫 RTC-7 计划中')).toBe('https://acme.atlassian.net/browse/RTC-7')
+  expect(await href('🎫 RTC-9 已上线')).toBe('https://acme.atlassian.net/browse/RTC-9')
+  expect(await href('🔀 #12 要改 · CI 挂了')).toBe('https://github.com/acme/shop/pull/12')
+  // 数据里的地址不是认得的 https（javascript:）：不用它，按 PR 的键拼出 GitHub 地址。
+  expect(await href('🔀 #13 已合并')).toBe('https://github.com/acme/shop/pull/13')
+  // Slack 两处：点开最近的一条。
+  expect(await href('💬 Slack 2 处')).toBe('https://acme.slack.com/archives/C123/p1700000000000100')
+  expect(await href('🔀 shop#12')).toBe('https://github.com/acme/shop/pull/12')
+  // 会话：不带框的按钮，跳过去。
   await ui.press({ key: 'ss1' })
   expect(runs.at(-1)).toBe('/usr/bin/open claude://code/continue?session=local_abc')
-  // 地址不是这几家的 https：不开。
-  const before = runs.length
-  await ui.press({ key: 'pr1-github.com/acme/shop/pull/13' })
-  expect(runs.length).toBe(before)
-  await want(ui, { type: 'Text', text: /没打开/ })
+  expect((await ui.findAll({ type: 'Link' })).some(l => String(l.props.href).startsWith('javascript'))).toBe(false)
+  await want(ui, { type: 'Text', text: '卡在：等设计稿' })
+  // 子任务换成了父需求，不单独显示；GitHub 刚失败一次不提醒。
+  expect(await ui.find({ type: 'Link', text: /RTC-2/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /半小时没查成/ })).toBeFalsy()
 
-  // 点开一行：每处讨论各一行，能点开，下面是最近说的。
+  // 点开一行：每处讨论各一行，是链接，下面是最近说的。
   await ui.press({ key: 'tg1' })
-  await want(ui, { type: 'Text', text: /💬 Slack · #rc-dev · 3 条 · .* · 最早从这来 ↗/ })
+  expect(await href('💬 Slack · #rc-dev · 3 条')).toBe('https://acme.slack.com/archives/C123/p1700000000000100')
+  expect((await ui.find({ type: 'Link', text: /最早从这来/ }))?.props.href).toBe('https://acme.slack.com/archives/C123/p1700000000000100')
+  expect((await ui.find({ type: 'Link', text: /Slack · Alice/ }))?.props.href).toBe('https://acme.slack.com/archives/D123/p1700000000000200')
   await want(ui, { type: 'Text', text: 'Alice：私信' })
-  await ui.press({ key: 'tlb1-1' })
-  expect(runs.at(-1)).toBe('/usr/bin/open https://acme.slack.com/archives/D123/p1700000000000200')
   await ui.unmount()
 })
 

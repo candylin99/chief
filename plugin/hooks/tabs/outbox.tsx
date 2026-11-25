@@ -31,7 +31,7 @@ export function replyCard($: Engine, ui: Els, s: Snapshot, edit: Record<string, 
     <Box key={`r${r.id}`} flexDirection="column" gap="xs" marginTop="xs">
       <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap="sm">
         <Box flexShrink={1}><Text wrap="wrap"><Text color={r.status === 'failed' ? 'error' : undefined}>✉ </Text><Text weight="semibold">{approve ? t().reply.approve(r.target.ref ?? '') : r.kind === 'message' ? t().reply.message(who) : t().reply.reply(who)}</Text><Text size="caption" dimColor>{t().gap}{meta}</Text></Text></Box>
-        {r.kind !== 'message' && messageLink($, ui, s, r.event)}
+        {r.kind !== 'message' && messageLink(ui, s, r.event)}
       </Box>
       {r.context.said !== '' && <Text size="footnote" dimColor wrap="truncate-end">{short(r.context.who ?? w.them, 16)}{t().colon}{short(r.context.said, 160)}</Text>}
       {r.status === 'failed' && <Text size="footnote" color="error" wrap="wrap">{w.notSent(r.error ?? t().noReason)}</Text>}

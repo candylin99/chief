@@ -56,18 +56,6 @@ export async function openSession($: Engine, session: string, title: string) {
   await tell($, `chief：打开会话 ${session}（${title}）`, t().act.toSession)
 }
 
-// 标签上的链接：在默认浏览器（Slack 链接会交给 Slack App）里打开。只开这几家的 https 地址，别的一律不开。
-const OPENABLE = /^https:\/\/([a-z0-9-]+\.)*(slack\.com|atlassian\.net|github\.com|notion\.so)\/[^\s"'<>`]*$/
-
-export async function openUrl($: Engine, url: string, label: string) {
-  if (!OPENABLE.test(url)) {
-    await update($, note, () => stamp(t().act.failed(label, t().tags.badUrl)))
-    return
-  }
-  const out = await $.process.run(['/usr/bin/open', url])
-  await update($, note, () => stamp(out.exitCode === 0 ? t().tags.opened(short(label, 24)) : t().act.failed(label, short(out.stderr.trim() || t().noReason, 120))))
-}
-
 // ── 批注：在各处写几句，攒着一起发给主会话 ──
 
 // 加一条批注（不发送）。同一处再批，就接在后面。

@@ -153,8 +153,6 @@ const zh = {
     sentToday: (n: number) => `今天发出的（${n}）`,
   },
   tags: {
-    opened: (what: string) => `打开了 ${what}`,
-    badUrl: '这个链接不是 Slack / Jira / GitHub / Notion 的，没打开',
     prState: { draft: '草稿', open: '待 review', required: '待 review', approved: '已 approve', changes: '要改', merged: '已合并', closed: '已关闭' },
     ci: { pass: 'CI 过了', fail: 'CI 挂了', pending: 'CI 运行中' },
     more: (n: number) => `+${n}`,
@@ -639,8 +637,6 @@ const en: Dict = {
     sentToday: (n: number) => `Sent today (${n})`,
   },
   tags: {
-    opened: (what: string) => `Opened ${what}`,
-    badUrl: 'Not a Slack / Jira / GitHub / Notion link, not opened',
     prState: { draft: 'Draft', open: 'Needs review', required: 'Needs review', approved: 'Approved', changes: 'Changes requested', merged: 'Merged', closed: 'Closed' },
     ci: { pass: 'CI passed', fail: 'CI failed', pending: 'CI running' },
     more: (n: number) => `+${n}`,
