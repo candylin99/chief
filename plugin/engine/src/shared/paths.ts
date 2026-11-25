@@ -51,6 +51,8 @@ const DATA = {
   undo: "undo.json",
   // 事情关联的 Jira 单、PR 现在什么状态、从哪来的（引擎每 10 分钟查一次，见 links.ts）：面板画标签、阶段用。
   links: "links.json",
+  // 通知：只记下的 Slack 消息（私信、@我、我在的 thread），面板出卡，点「已读 👀」引擎加 :eyes:（见 notices.ts）。
+  notices: "notices.json",
 } as const;
 
 // 放在 top 的：你的规矩、可调的数字和开关（见 config.ts）、chief export 导出的备份。

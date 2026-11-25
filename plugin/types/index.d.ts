@@ -155,6 +155,25 @@ export type Health = { ok: boolean; at: string; fails: number; error?: string }
 export type EvalCaseRow = { id: number; text: string; from: string; expect: 'dispatch' | 'note' | 'ignore' | 'ask'; note?: string }
 export type EvalRunRow = { id: number; at: string; events: Record<string, number> }
 
+// 通知（notices.json）：只记下的 Slack 消息，点「已读 👀」引擎在原消息上加 :eyes:。
+export type NoticeRow = {
+  event: number
+  at: string
+  who: string | null
+  where: string
+  text: string
+  url: string | null
+  target: { channel: string; ts: string }
+  // 哪段对话：面板一段对话一张卡。covered：跟着后来那条一起看过的，没单独加 :eyes:。
+  conv?: string
+  covered?: true
+  thing?: number
+  status: 'unread' | 'queued' | 'done' | 'failed'
+  queuedAt?: string
+  readAt?: string
+  error?: string
+}
+
 // 面板每次刷新读出来的一份。
 export type Snapshot = {
   hub: { listening: boolean; lastAt: string | null }
@@ -192,6 +211,8 @@ export type Snapshot = {
   reread: boolean
   // 事情关联的单子、PR 的状态和来处（links.json；引擎还没查过是空的）。
   links: LinksFile
+  // 只记下的 Slack 消息的通知卡（notices.json；旧引擎没有就是空的）。
+  notices: NoticeRow[]
 }
 
 // 主会话一天用掉的额度（hooks/usage.ts 记）：five / week 是 5 小时、每周窗口涨了几个百分点（量到的加估的），

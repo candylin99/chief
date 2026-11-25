@@ -253,6 +253,13 @@ export class SlackPlugin implements ChannelPlugin {
     return { ref: `${res.channel}:${res.ts}`, channel: res.channel, ts: res.ts, ...(inThread ? { threadTs: inThread } : {}), ...(direct ? { direct: true } : {}) };
   }
 
+  // 以你的身份在一条消息上加一个表情（emoji 不带冒号，比如 eyes）。已经加过的，Slack 回 already_reacted，调用方当成功。
+  async react(target: { channel: string; ts: string }, emoji: string): Promise<void> {
+    const client = this.client;
+    if (!client) throw new Error("Slack 还没连上");
+    await client.reactions.add({ channel: target.channel, ts: target.ts, emoji });
+  }
+
   // 图要和正文在一起，发到哪由 imageThreadOf 定。返回没发上的（名字和原因）；全发上了是空的。
   // 一张一条：gabriel-slack 的 files.upload 一次只分享一个文件，几张合成一条要它支持了才行。
   async sendImages(to: SentTo, images: readonly { file: string; name: string; mime: string }[]): Promise<string[]> {

@@ -429,3 +429,30 @@ export interface Doctor {
   quietHours: { start: string; end: string } | null;
   digest: { morning: string | null; evening: string | null };
 }
+
+// ── 通知（notices.json）──
+
+// 一条只记下的 Slack 消息：谁、在哪、一句话、原消息地址；target 是那条消息（加 :eyes: 用）。
+// unread：没看；queued：你点了已读，引擎马上加 :eyes:；done：加上了；failed：没加上（error）。
+export interface Notice {
+  event: number;
+  at: string;
+  who: string | null;
+  where: string;
+  text: string;
+  url: string | null;
+  target: { channel: string; ts: string };
+  // 哪段对话（thread 或私信，和事件的第一个键一样）：面板一段对话一张卡，已读只在最新那条上加 :eyes:，其余跟着算看过。
+  conv?: string;
+  // 跟着同一段对话里后来那条一起看过的：没单独加 :eyes:。
+  covered?: true;
+  thing?: number;
+  status: "unread" | "queued" | "done" | "failed";
+  queuedAt?: string;
+  readAt?: string;
+  error?: string;
+}
+
+export interface NoticesFile {
+  items: Notice[];
+}

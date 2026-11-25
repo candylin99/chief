@@ -765,6 +765,57 @@ test('过时清扫：收起的 approve 卡留灰字能恢复；亲自回过的�
   await ui.unmount()
 })
 
+test('通知：只记下的 Slack 消息单独一区、一段对话一张卡；已读 👀 直接跑 chief notice read；正在加、没加上的各有说法', async ($, on) => {
+  const runs: string[] = []
+  on('command.register', () => ({ value: { command: 'chief' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  memStore(on)
+  on('clock.every', () => ({ value: { cancel: () => {} } }))
+  const prompts: string[] = []
+  on('prompt.submit', (_, e) => { prompts.push(e.text); return { text: e.text } })
+  const n = (event: number, over: Record<string, unknown> = {}) => ({ event, at: now, who: 'Jackson', where: '#proj-rtc', text: '提测了', url: 'https://acme.slack.com/archives/C1/p1700000000000100', target: { channel: 'C1', ts: '1.0' }, status: 'unread', ...over })
+  const files: Record<string, string> = {
+    ...FILES,
+    '/Users/me/chief/data/things.json': JSON.stringify({ things: [{ id: 1, title: '寄回运单', status: 'doing', progress: '', events: [], updatedAt: now, log: [] }], asks: [] }),
+    '/Users/me/chief/data/notices.json': JSON.stringify({ items: [n(6, { conv: 'c1', text: '早的那条' }), n(7, { thing: 1, conv: 'c1' }), n(8, { status: 'queued', text: '已经合了' }), n(9, { status: 'failed', error: 'message_not_found', text: '删了' }), n(10, { status: 'done', text: '看过的' })] }),
+  }
+  on('fs.read', (_, e) => {
+    if (e.path === '/Users/me/chief/data/bin/chief') return { value: '#!/bin/sh' }
+    const text = files[e.path]
+    if (text === undefined) throw new Error('missing')
+    return { value: text }
+  })
+  on('process.run', (_, e) => {
+    runs.push(e.argv.slice(1).join(' '))
+    if (e.argv[0] === '/usr/bin/env') return { value: { exitCode: 0, stdout: 'HOME=/Users/me\nPATH=/usr/bin\n', stderr: '' } }
+    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'chief', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // 看过的（done）不出；其余三条在「通知」区，挂着事情的写上事情名。
+  await want(ui, { type: 'Text', text: '通知 · 3' })
+  await want(ui, { type: 'Text', text: /Jackson · #proj-rtc · 寄回运单/ })
+  expect(await ui.find({ type: 'Text', text: '看过的' })).toBeFalsy()
+  // 同一段对话一张卡：只显示最新那条，写还有几条。
+  expect(await ui.find({ type: 'Text', text: '早的那条' })).toBeFalsy()
+  await want(ui, { type: 'Text', text: /这段对话里还有 1 条没看/ })
+  expect(await ui.find({ key: 'rd6' })).toBeFalsy()
+  expect((await ui.find({ type: 'Link', text: '原消息 ↗' }))?.props.href).toBe('https://acme.slack.com/archives/C1/p1700000000000100')
+  // 已读 👀：直接跑 chief，不交给主会话。
+  await ui.press({ key: 'rd7' })
+  expect(runs.at(-1)).toBe('notice read 7')
+  expect(prompts).toEqual([])
+  // 正在加的没有按钮；没加上的写原因、能再试。
+  expect(await ui.find({ key: 'rd8' })).toBeFalsy()
+  await want(ui, { type: 'Text', text: '正在加 👀…' })
+  await want(ui, { type: 'Text', text: /:eyes: 没加上：message_not_found/ })
+  await ui.press({ key: 'rd9' })
+  expect(runs.at(-1)).toBe('notice read 9')
+  await ui.unmount()
+})
+
 test('同一句话两分钟内只交一次，过了两分钟照常交', () => {
   expect(seenRecently('chief：测试去重', 0)).toBe(false)
   expect(seenRecently('chief：测试去重', 60_000)).toBe(true)

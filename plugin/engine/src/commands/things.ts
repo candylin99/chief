@@ -5,6 +5,7 @@ import { msg } from "../messages";
 import { serviceState } from "../launchd";
 import { loadDispatch, loadReplies, loadThings, paths, readEvents, updateJson, type Ask, type Thing, type ThingsFile } from "../store";
 import { parseUntil } from "../snooze";
+import { backfill, loadNotices, queueRead } from "../notices";
 import { STAGE_LABELS, parseStage } from "../shared/stage";
 import { recordDrop } from "../undo";
 import { eventById, hubAlive } from "./events";
@@ -387,4 +388,30 @@ export async function board(): Promise<void> {
     snoozed: t.things.filter((x) => x.snooze && x.status !== "done" && x.status !== "dropped").length,
     replies: loadReplies().items.filter((r) => r.status === "pending" || r.status === "failed").length,
   })}\n`);
+}
+
+// chief notice read <事件号>：你在面板上点了「已读 👀」，排上让引擎在那条 Slack 消息上加 :eyes:（重复点、已经加过的什么都不做）。
+// chief notice list：还没看完的通知。
+export async function notice(args: string[]): Promise<void> {
+  const sub = args.shift();
+  if (sub === "list") {
+    process.stdout.write(`${JSON.stringify(loadNotices().items.filter((x) => x.status !== "done"), null, 2)}\n`);
+    return;
+  }
+  if (sub === "read") {
+    const id = num(args.shift(), "事件号");
+    try {
+      process.stdout.write(`${JSON.stringify(queueRead(id))}\n`);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+  if (sub === "backfill") {
+    const h = flag(args, "--hours");
+    const hours = h === null ? 24 : num(h, "--hours ");
+    process.stdout.write(`${JSON.stringify({ added: backfill(hours) })}\n`);
+    return;
+  }
+  fail("chief notice list|read <事件号>|backfill [--hours 24]");
 }

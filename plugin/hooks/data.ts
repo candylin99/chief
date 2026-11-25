@@ -4,7 +4,7 @@ import type { EngineInterface as Engine } from 'claude-code'
 
 import { localeOf } from '../engine/src/shared/i18n'
 import { defaultHomeOf, layoutOf, topOf, type Layout } from '../engine/src/shared/paths'
-import type { AskRow, DecisionRow, HubUsage, LinksFile, PolicyFile, ReplyRow, Reviews, Snapshot, ThingRow, UndoRow } from '../types'
+import type { AskRow, DecisionRow, HubUsage, LinksFile, NoticeRow, PolicyFile, ReplyRow, Reviews, Snapshot, ThingRow, UndoRow } from '../types'
 import { setLocale } from './i18n'
 
 // 面板的状态都在 PluginState['chief'] 里（types/index.d.ts）；引擎要求每个文件用到哪份就在本文件里声明哪份。
@@ -58,7 +58,7 @@ async function readLines<T>($: Engine, path: string): Promise<T[]> {
 
 export async function refresh($: Engine) {
   const f = await chiefFiles($)
-  const [alive, engine, state, dispatch, things, replies, decisions, reviews, policy, sources, activity, evals, people, hubUsage, undo, settings, links] = await Promise.all([
+  const [alive, engine, state, dispatch, things, replies, decisions, reviews, policy, sources, activity, evals, people, hubUsage, undo, settings, links, notices] = await Promise.all([
     readJson<{ at?: string; stopped?: boolean }>($, f.alive, {}),
     readJson<{ at?: string; health?: Snapshot['health'] }>($, f.engineAlive, {}),
     readJson<{ nextId?: number }>($, f.state, {}),
@@ -78,6 +78,8 @@ export async function refresh($: Engine) {
     readJson<{ locale?: unknown }>($, f.config, {}),
     // 关联的单子、PR 的状态（引擎每 10 分钟查一次）：旧引擎没有这个文件，就是空的。
     readJson<Partial<LinksFile>>($, f.links, {}),
+    // 只记下的 Slack 消息的通知卡（旧引擎没有这个文件，就是空的）。
+    readJson<{ items?: NoticeRow[] }>($, f.notices, {}),
   ])
   const locale = localeOf(settings.locale)
   setLocale(locale)
@@ -113,6 +115,7 @@ export async function refresh($: Engine) {
     locale,
     reread: pv !== null && readAt !== pv,
     links: { at: links.at ?? null, jira: links.jira ?? {}, prs: links.prs ?? {}, talks: links.talks ?? {}, messages: links.messages ?? {}, errors: links.errors ?? {}, failingSince: links.failingSince ?? {}, jiraSite: links.jiraSite ?? null },
+    notices: notices.items ?? [],
     hubMode: ((activity as Record<string, unknown>)._hub as { permissionMode?: string | null } | undefined)?.permissionMode ?? null,
   }
   await update($, snap, () => next)

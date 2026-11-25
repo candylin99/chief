@@ -17,6 +17,7 @@ import { KeychainStore, type SecretStore } from "./secrets";
 import { keysOf } from "./keys";
 import { EMPTY_LINKS, collectLinks, siteFromEvents } from "./links";
 import { askStaleEvent, spokeAfter, staleAsks, sweepReplies } from "./sweep";
+import { reactQueued } from "./notices";
 import { findGh, ghRunner } from "./sources/github";
 import { findJiraCli, type JiraCli } from "./sources/jira";
 import { DATA_HEALTH } from "./shared/rules";
@@ -242,6 +243,8 @@ type SendResult = { url: string | null; warning?: string };
 export interface EngineDeps {
   send?: (r: Reply) => Promise<SendResult>;
   notify?: (title: string, body: string) => void;
+  // 在一条 Slack 消息上加 :eyes:（测试换成假的；不给就用连着的 Slack）。
+  react?: (target: { channel: string; ts: string }) => Promise<void>;
 }
 
 export type { SourceHealth };
@@ -658,6 +661,11 @@ export class Engine {
         if (out.warning) notify(msg().imageFailedTitle, `${r.context.who ?? r.context.where}${msg().colon}${out.warning}`);
         if (!this.record(r.id, { status: "sent", sentAt: new Date().toISOString(), ...(out.url ? { url: out.url } : {}), ...(out.warning ? { error: out.warning } : {}) })) this.unrecorded.set(r.id, out);
       }
+      // 你点了「已读 👀」的通知：在那条 Slack 消息上加 :eyes:（见 notices.ts）。
+      const react = this.deps.react ?? (this.slack ? (t: { channel: string; ts: string }) => this.slack!.react(t, "eyes") : null);
+      const seen = await reactQueued(react);
+      for (const id of seen.done) log(`通知 #${id}：加了 :eyes:`);
+      for (const id of seen.failed) log(`通知 #${id}：:eyes: 没加上`);
     } catch (error) {
       log(`发回复出错：${error instanceof Error ? error.message : String(error)}`);
     } finally {

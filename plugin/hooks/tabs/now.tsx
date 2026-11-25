@@ -4,13 +4,13 @@
 //   空的时候说一句没事，最底下一行是今天替你办了多少。
 import type { EngineInterface as Engine } from 'claude-code'
 
-import type { AskRow, DecisionRow, Snapshot } from '../../types'
-import { ackKeyAlerts, answerAll, answerAsk, decideProposal, dismissAsk, engineDo, explainAsk, openSession, reopenAsk, restoreReply, setTab, skipOld, tell, toggle } from '../actions'
+import type { AskRow, DecisionRow, NoticeRow, Snapshot } from '../../types'
+import { ackKeyAlerts, answerAll, answerAsk, decideProposal, dismissAsk, engineDo, explainAsk, openSession, readNotice, reopenAsk, restoreReply, setTab, skipOld, tell, toggle } from '../actions'
 import { markReread } from '../data'
 import { inboxOf, type Card, type SysItem } from '../inbox'
 import { sourceName, t } from '../i18n'
 import { RELOAD_SKILL, ago, dueLabel, listify, md, onceButton, replyGist, short, splitAsk, startOfToday, whatOf, type Els } from '../ui'
-import { stageLine, tagsRow } from '../tags'
+import { safeHref, stageLine, tagsRow } from '../tags'
 import { replyCard, sendingRow } from './outbox'
 
 export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], edit: Record<string, string> = {}) {
@@ -174,6 +174,11 @@ export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], e
     )
   }
 
+  // 还没看的通知（没读的、正在加 👀 的、上次没加上的），新的在前。
+  // 一段对话一张卡：最新那条，加上同一段里还有几条没看的。
+  const convs = new Map<string, NoticeRow[]>()
+  for (const n of s.notices.filter(n => n.status !== 'done')) convs.set(n.conv ?? `e${n.event}`, [...(convs.get(n.conv ?? `e${n.event}`) ?? []), n])
+  const notices = [...convs.values()].map(list => ({ ...list.sort((a, b) => b.event - a.event)[0]!, more: list.length - 1 })).sort((a, b) => b.at.localeCompare(a.at))
   const empty = box.system.length === 0 && box.cards.length === 0
   return (
     <Box flexDirection="column" marginTop="sm">
@@ -184,6 +189,33 @@ export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], e
       )}
       {empty && <Box marginTop="sm"><Text color="success">{w.clear}</Text></Box>}
       {box.cards.map(group)}
+      {/* 通知：只记下的 Slack 消息，和要你定的分开放；点「已读 👀」引擎在原消息上加 :eyes:，卡片收起。 */}
+      {notices.length > 0 && (
+        <Box flexDirection="column" marginTop="lg" gap="sm">
+          <Box flexDirection="column">
+            <Text size="footnote" weight="semibold">{w.notices(notices.length)}</Text>
+            <Text size="caption" dimColor wrap="wrap">{w.noticesHelp}</Text>
+          </Box>
+          {notices.map(n => {
+            const th = n.thing === undefined ? undefined : s.things.find(x => x.id === n.thing)
+            const href = safeHref(n.url)
+            return (
+              <Box key={`nt${n.event}`} flexDirection="column" gap="xs" borderStyle="round" borderColor="inactive" borderDimColor paddingX="md" paddingY="sm">
+                <Text size="caption" dimColor wrap="truncate-end">{[n.who ?? '', n.where, th ? th.title : '', ago(n.at)].filter(Boolean).join(' · ')}</Text>
+                <Text size="footnote" wrap="wrap">{short(n.text, 200)}</Text>
+                {n.more > 0 && <Text size="caption" dimColor>{w.noticeMore(n.more)}</Text>}
+                {n.status === 'failed' && <Text size="caption" dimColor wrap="wrap">{w.noticeFailed(n.error ?? t().noReason)}</Text>}
+                <Box flexDirection="row" gap="md" alignItems="center">
+                  {n.status === 'queued'
+                    ? <Text size="footnote" dimColor>{w.noticeReading}</Text>
+                    : <Button key={`rd${n.event}`} plain onPress={() => readNotice($, n.event, w.noticeRead)}>{n.status === 'failed' ? w.noticeRetry : w.noticeRead}</Button>}
+                  {href && 'Link' in ui && <Text size="caption"><ui.Link href={href}>{w.noticeOriginal}</ui.Link></Text>}
+                </Box>
+              </Box>
+            )
+          })}
+        </Box>
+      )}
       {box.withdrawn.length > 0 && (
         <Box flexDirection="column" marginTop="sm">
           <Text size="caption" dimColor>{w.withdrawnToday}</Text>

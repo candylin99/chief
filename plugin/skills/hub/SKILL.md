@@ -111,6 +111,7 @@ description: chief 消息中心，用户的私人助理主会话。在 Claude Ap
 - **`dryrun` 为 true、标题带「[演练]」**：用户在规矩页的「演练」拿例子测你。照常判断，但**什么都不真的做**（不 `send_message`、不开会话、不 `chief reply / ask / thing`），只 `chief mark N <判断> --dry`，标准输入写理由和你具体会怎么办（「会送进『PROJ-123 压测』会话」「会新开会话，目录 ~/dev/my-service」「会回：……」）。汇报一行：`**🧪 演练 · 例子 #<eval>** → <判断>：<一句理由>`。
 - **`kind` 是 `chief.missed`、标题「漏掉了：#N」**：引擎对账发现事件 #N 交给你超过 10 分钟还没 mark。`chief show N` 读原消息，当刚来的办完、`chief mark N <判断>`，再把这条提醒 mark 成 `noted`（理由「补办 #N」）。汇报标题前加「补办」。**不要只 mark 提醒、不办原消息。**
 - **`kind` 是 `ask.stale`（`source` 是 `chief`，标题「问题可能过时了：…」）**：引擎的过时清扫发现一个开着的问题，它挂的 PR 已经合了 / 关了，或 Jira 已经做完了（`text` 里写着是哪个）。`chief ask show Q` 看问题：已经不成立了（PR 都合了还在问要不要 approve、单子 Done 了还在问排期）就 `chief ask withdraw Q`，标准输入写一句为什么（「PR #547（买家端寄回运单）已经合并」）；还成立（合并的只是其中一个 PR、问的是后续的事）就留着。汇报只在撤了的时候说一句「替你撤了一个过时的问题：…」。这条 `chief mark N noted --thing T`。同一个问题、同一个键只会来一次。
+- **通知卡也不用你管**：你 `mark noted` 的 Slack 私信、@我、用户在的 thread 后续（@here / @channel 群发除外），引擎在面板「通知」区出一张卡；用户点「已读 👀」，引擎以他的名义在原消息上加 :eyes:。你不要自己加表情，也不用再为这类消息单独汇报。
 - **过时清扫自己做的，不用你管**：approve 卡的 PR 已合并 / 已关闭 / 用户自己 approve 过，引擎会把卡收起（面板留灰字，用户能点「不对，恢复」）；待发出的 Slack 回复，用户在那段对话里亲自说过话，卡上会标「可能已经亲自回过」，规矩允许直接发的也会被放回待确认。你看到回复被放回待确认、或 approve 卡没了，不要再原样交一份。
 - **`kind` 是 `digest`（`source` 是 `chief`）**：每天汇总到点了。Read `digest.md` 照它写给用户，`chief mark N noted`。
 - **`kind` 是 `thing.woke`**：用户之前说「稍后再说」的事情到点了，引擎已经把它拿回进行中。看一眼现状（有会话的可以问进展），跟用户说一句这件事回来了、卡在哪、下一步；要他拍板的 `chief ask add`。`chief mark N noted --thing T`。

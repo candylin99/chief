@@ -5,6 +5,7 @@ import { SESSION, fail, flag, num, oneLine, stdinText, title } from "../args";
 import { KEY } from "../keys";
 import { LineTail } from "../tail";
 import { appendDecision, loadCursor, loadDecisions, loadDispatch, loadRoutes, loadThings, paths, readEvents, readJson, scenarioOf, updateJson, withLock, writeJson, type ChiefEvent, type Decision, type Dispatch, type Routes } from "../store";
+import { noteMarked } from "../notices";
 import { recordMark, recordSkip } from "../undo";
 import { updateThings } from "./things";
 
@@ -208,6 +209,8 @@ export async function mark(args: string[]): Promise<void> {
       });
     }
   }
+  // 只记下的 Slack 私信 / @我 / thread 后续：面板出通知卡（改判成别的，没读的卡撤掉）。
+  if (upto === null && !dry) noteMarked(marked.map((id) => byId.get(id)!), status, at, thingId);
   // 记一笔能撤回的：跳过积下的、只记下 / 忽略（chief undo）。
   if (upto !== null) recordSkip(at, marked);
   else if (!dry) recordMark(status as Decision["verdict"], at, marked.map((id) => byId.get(id)!), before, thingId);

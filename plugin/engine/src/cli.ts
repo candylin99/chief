@@ -54,7 +54,7 @@ import { reply } from "./commands/reply";
 import { importCandidates, review, rules } from "./commands/rules";
 import { archive, awake, configCmd, connect, disconnect, doctor, engineCmd, install, logs, run, slackCmd, status, uninstall } from "./commands/setup";
 import { searchCmd } from "./commands/search";
-import { ask, board, thing } from "./commands/things";
+import { ask, board, notice, thing } from "./commands/things";
 import { undoCmd } from "./commands/undo";
 import { migrateAll } from "./migrate";
 import { ensureHome } from "./store";
@@ -87,6 +87,7 @@ const COMMANDS: Readonly<Record<string, (args: string[]) => Promise<void> | void
   board: () => board(),
   thing: (args) => thing(args),
   ask: (args) => ask(args),
+  notice: (args) => notice(args),
   rules: (args) => rules(args),
   review: (args) => review(args),
   import: () => importCandidates(),

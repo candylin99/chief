@@ -1365,6 +1365,18 @@ describe("写给你看的话里不许有 chief 自己的编号", () => {
     const items = JSON.parse(chief(h, "reply", "list")) as { id: number; body: string }[];
     expect(items.map((r) => r.body)).toEqual(["见 #13", "见 #12，我自己写的"]);
   });
+
+  it("只记下的 Slack 私信出通知卡，GitHub 的不出；chief notice read 点一次排上，再点什么都不做", () => {
+    const h = home();
+    chief(h, "cursor");
+    writeFileSync(join(h, "events.jsonl"), `${slackEvent(1)}\n${githubEvent(2)}\n`);
+    withStdin(h, "只是告知", "mark", "1", "2", "noted");
+    const list = JSON.parse(chief(h, "notice", "list")) as { event: number; who: string; status: string }[];
+    expect(list).toMatchObject([{ event: 1, who: "Joe", status: "unread" }]);
+    expect(JSON.parse(chief(h, "notice", "read", "1"))).toMatchObject({ status: "queued", changed: true });
+    expect(JSON.parse(chief(h, "notice", "read", "1"))).toMatchObject({ status: "queued", changed: false });
+    expect(chiefFails(h, "notice", "read", "2")).toContain("没有消息 #2 的通知");
+  });
 });
 
 describe("引擎发之前再核一遍", () => {
