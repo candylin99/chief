@@ -803,7 +803,10 @@ test('通知：只记下的 Slack 消息单独一区、一段对话一张卡；�
   await want(ui, { type: 'Text', text: /这段对话里还有 1 条没看/ })
   expect(await ui.find({ key: 'rd6' })).toBeFalsy()
   expect((await ui.find({ type: 'Link', text: '原消息 ↗' }))?.props.href).toBe('https://acme.slack.com/archives/C1/p1700000000000100')
-  // 已读 👀：直接跑 chief，不交给主会话。
+  // 两个按钮，都直接跑 chief、不交给主会话：「已读」只标已读（--quiet），「已读并回 👀」还加 :eyes:。
+  await want(ui, { type: 'Text', text: '已读' })
+  await ui.press({ key: 'rq7' })
+  expect(runs.at(-1)).toBe('notice read 7 --quiet')
   await ui.press({ key: 'rd7' })
   expect(runs.at(-1)).toBe('notice read 7')
   expect(prompts).toEqual([])

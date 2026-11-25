@@ -145,9 +145,10 @@ export async function explainAsk($: Engine, id: number, asked: string, label: st
   await tell($, `chief：问题 #${id} 先问清楚：${asked}`, label)
 }
 
-// 通知卡上点「已读 👀」：排上让引擎在那条 Slack 消息上加 :eyes:（直接跑 chief，不经过主会话；重复点什么都不做）。
-export async function readNotice($: Engine, event: number, label: string) {
-  await act($, label, ['notice', 'read', String(event)])
+// 通知卡上的两个按钮（直接跑 chief，不经过主会话；重复点什么都不做）：
+// react 为 true 是「已读并回 👀」，排上让引擎在那条 Slack 消息上加 :eyes:；false 是「已读」，只标已读，不碰 Slack。
+export async function readNotice($: Engine, event: number, label: string, react = true) {
+  await act($, label, ['notice', 'read', String(event), ...(react ? [] : ['--quiet'])])
 }
 
 // 过时清扫收起的 approve 卡，你说「不对，恢复」：放回原来的状态，以后不再自动收（不用告诉主会话）。

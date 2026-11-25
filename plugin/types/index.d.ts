@@ -167,6 +167,8 @@ export type NoticeRow = {
   // 哪段对话：面板一段对话一张卡。covered：跟着后来那条一起看过的，没单独加 :eyes:。
   conv?: string
   covered?: true
+  // 你点的是「已读」（只标已读，没回 :eyes:）。
+  quiet?: true
   msgAt?: string
   // 已经有回应、自动算看过的（chief 回了 / approve 了、PR 已处理、你自己说过话）。
   handled?: 'replied' | 'approved' | 'pr' | 'self'

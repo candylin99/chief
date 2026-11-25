@@ -390,7 +390,7 @@ export async function board(): Promise<void> {
   })}\n`);
 }
 
-// chief notice read <事件号>：你在面板上点了「已读 👀」，排上让引擎在那条 Slack 消息上加 :eyes:（重复点、已经加过的什么都不做）。
+// chief notice read <事件号> [--quiet]：你在面板上点了「已读并回 👀」，排上让引擎在那条 Slack 消息上加 :eyes:；--quiet 是「已读」，只标已读不碰 Slack（重复点什么都不做）。
 // chief notice list：还没看完的通知。
 export async function notice(args: string[]): Promise<void> {
   const sub = args.shift();
@@ -401,7 +401,7 @@ export async function notice(args: string[]): Promise<void> {
   if (sub === "read") {
     const id = num(args.shift(), "事件号");
     try {
-      process.stdout.write(`${JSON.stringify(queueRead(id))}\n`);
+      process.stdout.write(`${JSON.stringify(queueRead(id, new Date(), !args.includes("--quiet")))}\n`);
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));
     }
@@ -413,5 +413,5 @@ export async function notice(args: string[]): Promise<void> {
     process.stdout.write(`${JSON.stringify({ added: backfill(hours) })}\n`);
     return;
   }
-  fail("chief notice list|read <事件号>|backfill [--hours 24]");
+  fail("chief notice list|read <事件号> [--quiet]|backfill [--hours 24]");
 }

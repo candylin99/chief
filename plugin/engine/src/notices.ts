@@ -65,14 +65,21 @@ function prune(n: NoticesFile, now = Date.now()): void {
   n.items = n.items.filter((x) => x.status !== "done" || now - Date.parse(x.readAt ?? x.at) < KEEP_DONE_MS).slice(-MAX_NOTICES);
 }
 
-// chief notice read <事件号>：排上加 :eyes:。没读的、上次没加上的才排；已经排上、已经加过的什么都不做（幂等）。
-export function queueRead(event: number, now = new Date()): { event: number; status: Notice["status"]; changed: boolean } {
+// chief notice read <事件号> [--quiet]：已读。默认是「已读并回 👀」：排上让引擎加 :eyes:；--quiet 只标已读，不碰 Slack。
+// 没读的、上次没加上的才动；已经排上、已经读过的什么都不做（幂等）。同一段对话里更早没看的都跟着算看过。
+export function queueRead(event: number, now = new Date(), react = true): { event: number; status: Notice["status"]; changed: boolean } {
   return updateNotices((n) => {
     const x = n.items.find((y) => y.event === event);
     if (!x) throw new Error(`没有消息 #${event} 的通知`);
     if (x.status === "queued" || x.status === "done") return { event, status: x.status, changed: false };
-    x.status = "queued";
-    x.queuedAt = now.toISOString();
+    if (react) {
+      x.status = "queued";
+      x.queuedAt = now.toISOString();
+    } else {
+      x.status = "done";
+      x.quiet = true;
+      x.readAt = now.toISOString();
+    }
     delete x.error;
     // 同一段对话里更早还没看的：跟着算看过，不单独加 :eyes:。
     for (const y of n.items) {

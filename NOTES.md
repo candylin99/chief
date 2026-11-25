@@ -92,11 +92,12 @@ git merge upstream/main
 - 「照办」旁边多一个**先问清楚**：点开可以写想知道什么，不写就问「背景、为什么这么建议、不照办会怎样」。面板先 `chief ask explain Q --ask` 记下在问（卡上显示「在问清楚：…」），再发「chief：问题 #Q 先问清楚：…」给消息中心；消息中心转给提出问题的会话，会话回「chief 解释 #Q」，消息中心 `chief ask explain Q` 写回，卡上整段显示「解释」。问题一直开着，不算你的决定。
 - 改法：引擎 `engine/src/commands/things.ts` 的 `ask`；面板 `hooks/tabs/now.tsx` 的 askCard、`hooks/actions.ts` 的 `explainAsk`；说明 `skills/hub/SKILL.md`、`panel-commands.md`、`handoff.md`。
 
-### 0.8.0–0.8.1：通知卡和「已读 👀」（2026-11-25）
+### 0.8.0–0.8.2：通知卡和「已读」/「已读并回 👀」（2026-11-25）
 
 - 主会话 `chief mark … noted` 的 Slack 私信、@我、你在的 thread 后续（@here / @channel 群发除外），引擎记成通知（`notices.json`，`engine/src/notices.ts`）；改判成别的，没读的卡撤掉。
 - 「要你」页下面单独一个「通知」区（不和要你定混在一起），**一段对话一张卡**：最新那条（谁 · 在哪 · 事情 · 多久以前、一句话、原消息链接），同一段里还有几条没看写在下面。按真实数据估过：一条一张的话最近每天 40～66 张，按对话合成后每天 7～11 张。
 - 「已读 👀」：面板直接跑 `chief notice read <事件号>`（不经过主会话），引擎下一秒以你的身份在最新那条上加 :eyes:（`SlackPlugin.react`），同一段里更早没看的跟着算看过（covered，不一条条加）。重复点、Slack 说 already_reacted 都只算一次；加不上（消息删了、没权限、Slack 没连上）卡上写原因，能「再试一次」。
+- **两个按钮**（0.8.2）：「已读」只标已读收起，不碰 Slack（`chief notice read N --quiet`，记 `quiet`）；「已读并回 👀」是上面那样加 :eyes:。都幂等，同一段对话更早的都跟着算看过。
 - `chief notice backfill [--hours 24]`：装上以前就只记下的，补出卡。
 - **已经有回应的不出卡**（0.8.1）：消息之后 chief 在同一段对话里回过 / approve 过、approve 了消息里链着的 PR，或链着的 PR 你已 approve / 合了 / 关了（这些 PR 每轮 links 一起查），或你自己在那段对话里说过话 → 自动算看过收起（`handled` 记为什么），不加 :eyes:。引擎每分钟和发出回复之后跑（`settleNotices`）。
 - 只做 Slack。

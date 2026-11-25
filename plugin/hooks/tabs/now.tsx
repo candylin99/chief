@@ -208,7 +208,12 @@ export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], e
                 <Box flexDirection="row" gap="md" alignItems="center">
                   {n.status === 'queued'
                     ? <Text size="footnote" dimColor>{w.noticeReading}</Text>
-                    : <Button key={`rd${n.event}`} plain onPress={() => readNotice($, n.event, w.noticeRead)}>{n.status === 'failed' ? w.noticeRetry : w.noticeRead}</Button>}
+                    : (
+                      <Box flexDirection="row" gap="md" alignItems="center">
+                        <Button key={`rq${n.event}`} plain onPress={() => readNotice($, n.event, w.noticeQuiet, false)}>{w.noticeQuiet}</Button>
+                        <Button key={`rd${n.event}`} plain onPress={() => readNotice($, n.event, w.noticeRead)}>{n.status === 'failed' ? w.noticeRetry : w.noticeRead}</Button>
+                      </Box>
+                    )}
                   {href && 'Link' in ui && <Text size="caption"><ui.Link href={href}>{w.noticeOriginal}</ui.Link></Text>}
                 </Box>
               </Box>

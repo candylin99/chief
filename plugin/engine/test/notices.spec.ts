@@ -62,6 +62,16 @@ describe("已读 👀", () => {
     expect(loadNotices().items.map((x) => [x.event, x.status, x.covered ?? false])).toEqual([[1, "done", true], [2, "done", false], [3, "unread", false]]);
   });
 
+  it("「已读」只标已读、不加 :eyes:，同一段更早的也算看过；之后再点「已读并回 👀」什么都不做", async () => {
+    noteMarked([ev({ id: 1 }), ev({ id: 2, reply: { channel: "C0RTC", ts: "1795079300.000100" } })], "noted", "t", null);
+    expect(queueRead(2, new Date("2026-11-25T03:00:00Z"), false)).toMatchObject({ status: "done", changed: true });
+    expect(loadNotices().items.map((x) => [x.event, x.status, x.quiet ?? false, x.covered ?? false])).toEqual([[1, "done", false, true], [2, "done", true, false]]);
+    expect(queueRead(2)).toMatchObject({ status: "done", changed: false });
+    const calls: string[] = [];
+    await reactQueued(async (t) => void calls.push(t.ts));
+    expect(calls).toEqual([]);
+  });
+
   it("Slack 说已经加过（already_reacted）算加上了", async () => {
     noteMarked([ev()], "noted", "t", null);
     queueRead(1);

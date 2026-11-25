@@ -1376,6 +1376,10 @@ describe("写给你看的话里不许有 chief 自己的编号", () => {
     expect(JSON.parse(chief(h, "notice", "read", "1"))).toMatchObject({ status: "queued", changed: true });
     expect(JSON.parse(chief(h, "notice", "read", "1"))).toMatchObject({ status: "queued", changed: false });
     expect(chiefFails(h, "notice", "read", "2")).toContain("没有消息 #2 的通知");
+    // 「已读」（--quiet）：只标已读。
+    writeFileSync(join(h, "events.jsonl"), `${slackEvent(1)}\n${githubEvent(2)}\n${slackEvent(3)}\n`);
+    withStdin(h, "只是告知", "mark", "3", "noted");
+    expect(JSON.parse(chief(h, "notice", "read", "3", "--quiet"))).toMatchObject({ status: "done", changed: true });
   });
 });
 
