@@ -17,6 +17,8 @@ const open = atom({ plugin: 'chief', key: 'open' } as const, [])
 const logs = atom({ plugin: 'chief', key: 'logs' } as const, '')
 const basket = atom({ plugin: 'chief', key: 'basket' } as const, [])
 const found = atom({ plugin: 'chief', key: 'found' } as const, null)
+// 刚交给主会话的话 → 什么时候交的：那个按钮两分钟内画成灰字「已交给消息中心」，点不了。
+const sent = atom({ plugin: 'chief', key: 'sent' } as const, {})
 
 // 事情相关的函数里 t 是那件事情：字典用这个名字。
 const t_ = t
@@ -79,9 +81,10 @@ export async function clearBasket($: Engine) {
 export async function sendBasket($: Engine) {
   const list = await read($, basket)
   if (list.length === 0) return
-  const lines = list.map((x, i) => `${i + 1}. ${x.key === 'note' ? '' : `关于${x.label}：`}${x.text}`)
-  void $.prompt.submit({ text: `chief：批注（${list.length} 条）\n${lines.join('\n')}` })
+  // 先清空再交：清空之前又点一下，不会把同一批再交一遍。
   await update($, basket, () => [])
+  const lines = list.map((x, i) => `${i + 1}. ${x.key === 'note' ? '' : `关于${x.label}：`}${x.text}`)
+  if (!(await submitOnce($, `chief：批注（${list.length} 条）\n${lines.join('\n')}`))) return
   await update($, note, () => stamp(t().act.basketSent(list.length)))
 }
 
@@ -99,14 +102,35 @@ export function seenRecently(text: string, now = Date.now()): boolean {
   return false
 }
 
-export async function tell($: Engine, text: string, label: string, decision = false) {
+// 面板往主会话交话都走这里：两分钟内交过同一句的不再交（返回 false，顶上提示刚交过）；交了就记下，那个按钮画成灰字。
+export async function submitOnce($: Engine, text: string, label = ''): Promise<boolean> {
   if (seenRecently(text)) {
-    await update($, note, () => stamp(t().act.already(label)))
-    return
+    await update($, note, () => stamp(t().act.already(label || short(text.replace(/^chief：/, ''), 16))))
+    return false
   }
-  await update($, note, () => stamp(t().act.handed(label)))
-  if (decision) await noteUserSaid($, `${label}（面板上点的）：${text}`)
+  const now = Date.now()
+  await update($, sent, m => ({ ...Object.fromEntries(Object.entries(m).filter(([, at]) => now - at < DEDUPE_MS)), [text]: now }))
   void $.prompt.submit({ text })
+  return true
+}
+
+// 画按钮时用：这句话是不是两分钟内刚交过（是就画成灰字，不给点）。
+// 状态是异步读的：每次画面板前 register.tsx 读一次 sent 交给 setSentNow，画按钮时同步查这一份。
+let sentNow: Record<string, number> = {}
+
+export function setSentNow(m: Record<string, number>) {
+  sentNow = m
+}
+
+export function justSent(_$: Engine, text: string): boolean {
+  const at = sentNow[text]
+  return at !== undefined && Date.now() - at < DEDUPE_MS
+}
+
+export async function tell($: Engine, text: string, label: string, decision = false) {
+  if (decision) await noteUserSaid($, `${label}（面板上点的）：${text}`)
+  if (!(await submitOnce($, text, label))) return
+  await update($, note, () => stamp(t().act.handed(label)))
 }
 
 // 你在「要你定」上拍板：先在 chief 里记下回答（卡片马上收起，不用等主会话），再交给主会话转告那件事的会话。
@@ -186,7 +210,7 @@ export async function send($: Engine, r: ReplyRow, typed?: string) {
     })
     await update($, note, () => stamp(t().act.sendIn(r.context.who ?? r.context.where)))
     // 你改过稿子才发：让主会话看看你改了什么，提议一条写法规矩，下次写得更像你。
-    if (edited) void $.prompt.submit({ text: `chief：回复 #${r.id} 你改过再发的` })
+    if (edited) void submitOnce($, `chief：回复 #${r.id} 你改过再发的`)
   }
 }
 

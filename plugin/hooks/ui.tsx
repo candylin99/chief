@@ -3,7 +3,7 @@
 import type { EngineInterface as Engine } from 'claude-code'
 
 import type { DecisionRow, ReplyRow, ThingRow } from '../types'
-import { annotate, toggle } from './actions'
+import { annotate, justSent, toggle } from './actions'
 import { L, t } from './i18n'
 
 export type Els = ReturnType<Engine['ui']['resolve']>
@@ -147,3 +147,10 @@ export function select(ui: Els, key: string, value: string, options: { value: st
 
 // 「重读规则」发给主会话的话：写全怎么做，主会话手上还是旧规则也看得懂。
 export const RELOAD_SKILL = 'chief：重读规则。插件更新过：用 Skill 工具重新调用 chief:hub，读到最新的规则。不用重新开张，也不用重挂 Monitor（监听一直挂着）。读完只回一句「规则重读好了」，有什么和之前不一样的顺带说一句。'
+
+// 只交一句话给主会话的按钮：两分钟内刚交过就画成灰字「…· 已交给消息中心」，不给再点（主会话在忙时点了没动静，人会连点）。
+export function onceButton($: Engine, ui: Els, key: string, text: string, label: string, onPress: () => unknown, opts: { plain?: boolean; primary?: boolean } = {}) {
+  const { Button, Text } = ui
+  if (justSent($, text)) return <Text key={`${key}-sent`} size="footnote" dimColor>{t().act.sentLabel(label)}</Text>
+  return <Button key={key} {...(opts.plain ? { plain: true as const } : {})} {...(opts.primary ? { variant: 'primary' as const } : {})} onPress={onPress}>{label}</Button>
+}

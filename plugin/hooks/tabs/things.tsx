@@ -8,7 +8,7 @@ import { clearSearch, finish, openSession, search, setTab, snooze, tell, toggle,
 import { linkProblem, stageLine, stageOrder, stageSummary, tagsRow, talksList } from '../tags'
 import { timeline } from './timeline'
 import { t as dict } from '../i18n'
-import { ago, annotateBox, annotateButton, awake, daysLeft, gist, live, md, short, snoozed, startOfToday, wakeLabel, type Els } from '../ui'
+import { ago, annotateBox, annotateButton, onceButton, awake, daysLeft, gist, live, md, short, snoozed, startOfToday, wakeLabel, type Els } from '../ui'
 
 // 稍后再说的几个快捷选项：until 是 chief thing snooze 认的写法。
 // 名字在 i18n.ts 的 things.later / laterSay 里。
@@ -142,7 +142,7 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
             {t.session && <Button key={`ot${t.id}`} variant="primary" onPress={() => goSession(t)}>{waiting ? w.answer : w.goSession}</Button>}
             <Button key={`dn${t.id}`} onPress={() => finish($, t, 'done')}>{w.done}</Button>
             <Button key={`mo${t.id}`} plain onPress={() => toggle($, `more-t${t.id}`)}>{more ? T.less : T.more}</Button>
-            {more && t.session && <Button key={`aask${t.id}`} onPress={() => tell($, `chief：转告事情 #${t.id}：现在进展怎么样？还差什么，能不能按时完成？`, w.askProgress)}>{w.askProgress}</Button>}
+            {more && t.session && onceButton($, ui, `aask${t.id}`, `chief：转告事情 #${t.id}：现在进展怎么样？还差什么，能不能按时完成？`, w.askProgress, () => tell($, `chief：转告事情 #${t.id}：现在进展怎么样？还差什么，能不能按时完成？`, w.askProgress))}
             {more && <Button key={`sl${t.id}`} onPress={() => toggle($, `sn-${t.id}`)}>{w.laterButton}</Button>}
             {more && annotateButton($, ui, `t${t.id}`, opened)}
             {more && <Button key={`dr${t.id}`} onPress={() => finish($, t, 'dropped')}>{w.drop}</Button>}
@@ -184,7 +184,7 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
       {linkProblem(s) !== null && <Text size="caption" color="warning" wrap="wrap">{T.tags.linkErrors(linkProblem(s)!)}</Text>}
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap="sm">
         <Text size="caption" dimColor>{w.summary(active.length, hot.length, done.length)}</Text>
-        <Button key="progress" plain onPress={() => tell($, 'chief：问一遍各事情的最新进展', w.askProgress)}>{w.askAll}</Button>
+        {onceButton($, ui, 'progress', 'chief：问一遍各事情的最新进展', w.askAll, () => tell($, 'chief：问一遍各事情的最新进展', w.askProgress), { plain: true })}
       </Box>
 
       {'Input' in ui && (

@@ -260,6 +260,8 @@ declare module 'claude-code' {
       hub: boolean
       // 进度页上搜以前的事：搜的字和结果。
       found: { q: string; hits: SearchHit[]; error?: string } | null
+      // 刚交给主会话的话 → 交的时间（毫秒）：那个按钮两分钟内画成灰字，防止连点重复交。
+      sent: Record<string, number>
       // 本会话上一次调完模型读到的额度百分比。
       reading: { at: number; five: number | null; week: number | null } | null
     }

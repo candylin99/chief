@@ -9,7 +9,7 @@ import { ackKeyAlerts, answerAll, answerAsk, decideProposal, dismissAsk, engineD
 import { markReread } from '../data'
 import { inboxOf, type Card, type SysItem } from '../inbox'
 import { sourceName, t } from '../i18n'
-import { RELOAD_SKILL, ago, dueLabel, listify, md, replyGist, short, splitAsk, startOfToday, whatOf, type Els } from '../ui'
+import { RELOAD_SKILL, ago, dueLabel, listify, md, onceButton, replyGist, short, splitAsk, startOfToday, whatOf, type Els } from '../ui'
 import { stageLine, tagsRow } from '../tags'
 import { replyCard, sendingRow } from './outbox'
 
@@ -44,7 +44,7 @@ export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], e
       case 'source':
         return row('error', w.sourceDown(sourceName(x.id), short(x.why || t().noReason, 80)), null, <Button key={`sys-src-${x.id}`} onPress={() => setTab($, 'setup')}>{w.toSetup}</Button>)
       case 'reread':
-        return row(undefined, w.reread, null, <Button key="sys-reread" variant="primary" onPress={() => { void tell($, RELOAD_SKILL, w.rereadButton); void markReread($) }}>{w.rereadButton}</Button>)
+        return row(undefined, w.reread, null, onceButton($, ui, 'sys-reread', RELOAD_SKILL, w.rereadButton, async () => { await tell($, RELOAD_SKILL, w.rereadButton); await markReread($) }, { primary: true }))
       case 'proposal':
         return row(undefined, w.proposal(x.text), x.basis ? t().policy.basis(x.basis) : null,
           <Button key={`pa${x.id}`} variant="primary" onPress={() => decideProposal($, x.id, true)}>{t().policy.accept}</Button>,
@@ -78,7 +78,9 @@ export function nowTab($: Engine, ui: Els, s: Snapshot, opened: string[] = [], e
           {q.suggest !== '' && (
             <Button key={`ok${q.id}`} variant="primary" onPress={() => answerAsk($, q.id, '照建议办', w.ok, `chief：问题 #${q.id} 照建议办`)}>{w.ok}</Button>
           )}
-          <Button key={`ex${q.id}`} plain onPress={() => toggle($, `exp${q.id}`)}>{w.explainButton}</Button>
+          {q.explain && !q.explain.answer
+            ? <Text key={`exw${q.id}`} size="footnote" dimColor>{w.explainWaiting}</Text>
+            : <Button key={`ex${q.id}`} plain onPress={() => toggle($, `exp${q.id}`)}>{w.explainButton}</Button>}
           <Button key={`no${q.id}`} plain onPress={() => toggle($, `dis${q.id}`)}>{w.disagreeShort}</Button>
           <Button key={`dm${q.id}`} plain onPress={() => dismissAsk($, q.id, w.dismiss)}>{w.dismiss}</Button>
         </Box>

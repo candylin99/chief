@@ -374,7 +374,7 @@ test('要你定按事情合成一张卡：每个问题各自回，刚定的能�
       ],
       asks: [
         { id: 11, thing: 1, question: '方案出来了。SDK 谁来写？', suggest: '我们写', status: 'open', at: ago(3_600_000), explain: { asked: '为什么是我们写？', at: ago(600_000), answer: '后端排期满了，**Bob** 说下周才有空。', answeredAt: ago(60_000) } },
-        { id: 12, thing: 1, question: '1.0 要不要一起改？', suggest: '一起改', status: 'open', at: ago(600_000) },
+        { id: 12, thing: 1, question: '1.0 要不要一起改？', suggest: '一起改', status: 'open', at: ago(600_000), explain: { asked: '改 1.0 要多久？', at: ago(30_000) } },
         { id: 13, thing: 1, question: '要不要问设计稿？', suggest: '顺口问一句', status: 'answered', answer: '照建议办', at: ago(3_600_000), closedAt: ago(30_000) },
         { id: 14, thing: 1, question: '要不要拉设计？', suggest: '', status: 'withdrawn', reason: '对方已经拉了', at: ago(3_600_000), closedAt: ago(60_000) },
         { id: 15, thing: 2, question: 'tab 高亮要改吗？', suggest: '改', basis: 'PRD 第 3 节写的两区都高亮', ifNot: '要跟 Sam 再对一次', status: 'open', at: ago(60_000) },
@@ -434,6 +434,9 @@ test('要你定按事情合成一张卡：每个问题各自回，刚定的能�
   await has(/不照办　要跟 Sam 再对一次/)
   await has(/解释 · /)
   await want(ui, { type: 'Markdown', text: '后端排期满了，**Bob** 说下周才有空。' })
+  // 已经在问清楚、还没解释回来的：按钮画成灰字，不再点。
+  expect(await ui.find({ key: 'ex12' })).toBeFalsy()
+  await has(/在问清楚：改 1.0 要多久？/)
   // 先问清楚：不写就问那三件；先在 chief 里记下在问，再交给主会话；不当成你的决定。
   await ui.press({ key: 'ex15' })
   await ui.press({ key: 'exd15' })
@@ -623,6 +626,10 @@ test('进度页的状态表：每个阶段几件；每行阶段、标记、在�
     if (text === undefined) throw new Error('missing')
     return { value: text }
   })
+  on('prompt.submit', (_, e) => {
+    runs.push(e.text)
+    return { text: e.text }
+  })
   on('process.run', (_, e) => {
     runs.push(e.argv.join(' '))
     if (e.argv[0] === '/usr/bin/env') return { value: { exitCode: 0, stdout: 'HOME=/Users/me\nPATH=/usr/bin\n', stderr: '' } }
@@ -659,6 +666,12 @@ test('进度页的状态表：每个阶段几件；每行阶段、标记、在�
   // 子任务换成了父需求，不单独显示；GitHub 刚失败一次不提醒。
   expect(await ui.find({ type: 'Link', text: /RTC-2/ })).toBeFalsy()
   expect(await ui.find({ type: 'Text', text: /半小时没查成/ })).toBeFalsy()
+
+  // 问一遍进展：交出去以后按钮变成灰字，两分钟内点不了第二次。
+  await ui.press({ key: 'progress' })
+  expect(runs.filter(r => r === 'chief：问一遍各事情的最新进展')).toHaveLength(1)
+  expect(await ui.find({ key: 'progress' })).toBeFalsy()
+  await want(ui, { type: 'Text', text: /已交给消息中心/ })
 
   // 点开一行：每处讨论各一行，是链接，下面是最近说的。
   await ui.press({ key: 'tg1' })

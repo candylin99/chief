@@ -7,6 +7,7 @@
 import { atom, read } from 'claude-code'
 import type { EngineInterface as Engine, Register } from 'claude-code'
 
+import { setSentNow } from './actions'
 import { refresh, chiefDir } from './data'
 import { confirmAsked, ensureKey, noteUserSaid } from './confirm'
 import { isHub, isHubMonitor, markHub, recordCall } from './usage'
@@ -26,6 +27,7 @@ const open = atom({ plugin: 'chief', key: 'open' } as const, [])
 const logs = atom({ plugin: 'chief', key: 'logs' } as const, '')
 const basket = atom({ plugin: 'chief', key: 'basket' } as const, [])
 const found = atom({ plugin: 'chief', key: 'found' } as const, null)
+const sent = atom({ plugin: 'chief', key: 'sent' } as const, {})
 
 const PANE = 'chief'
 const TITLE = 'chief'
@@ -148,6 +150,8 @@ async function draw($: Engine, ui: Els) {
     const current = await read($, tab)
     const said = await read($, note)
     const opened = await read($, open)
+    // 刚交给主会话的话：那些按钮这一次画成灰字（读在这里，sent 一变面板就重画）。
+    setSentNow(await read($, sent))
     // 原来的「待发出」并进了「要你」，「测评」并进了「规矩」，「控制」并进了「设置」：上次停在那几页的照样有地方去。
     const body = current === 'things' ? thingsTab($, ui, s, opened, await read($, found))
       : current === 'policy' || current === 'eval' ? policyTab($, ui, s, opened)

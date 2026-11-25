@@ -7,7 +7,7 @@ import { HHMM, parseQuietRange } from '../engine/src/shared/schedule'
 import type { Locale } from '../engine/src/shared/i18n'
 import { SOURCE_IDS, SOURCE_META, type SetupMeta, type SourceId } from '../engine/src/shared/sources'
 import type { Doctor, Setup, Snapshot } from '../types'
-import { act, engineDo, hubStop, setLanguage, showLogs, skipOld, tell, testMessage, toggle } from './actions'
+import { act, engineDo, hubStop, setLanguage, showLogs, skipOld, submitOnce, tell, testMessage, toggle } from './actions'
 import { ensureKey } from './confirm'
 import { chiefDir, markReread, refresh } from './data'
 import { usageBox } from './tabs/eval'
@@ -172,14 +172,14 @@ function openWorkspace($: Engine, path: string) {
 }
 
 function startHub($: Engine) {
-  void $.prompt.submit({ text: '开 chief 消息中心' })
+  void submitOnce($, '开 chief 消息中心')
   void markReread($)
 }
 
 // 插件自己开不了别的会话（插件接口里没有），但 Claude App 的会话有 start_session 工具：
 // 让这个会话替你在工作目录开一个新会话当主会话。工具不在（终端里）就让它告诉你怎么手动开。
 function openHubThere($: Engine, path: string) {
-  void $.prompt.submit({ text: t().setup.openHubThere(path) })
+  void submitOnce($, t().setup.openHubThere(path))
 }
 
 // 免打扰、每天汇总的常用选项（现在设的不在里面也会列上）。
