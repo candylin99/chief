@@ -6,6 +6,7 @@ import type { EngineInterface as Engine, RenderChildren } from 'claude-code'
 import type { SearchHit, Snapshot, ThingRow } from '../../types'
 import { clearSearch, finish, openSession, search, setTab, snooze, tell, toggle, wake } from '../actions'
 import { flagBadges, linkProblem, stageBadge, stageOrder, stageSummary, tagsRow, talksList } from '../tags'
+import { stylesSample } from '../samples'
 import { timeline } from './timeline'
 import { t as dict } from '../i18n'
 import { ago, annotateBox, annotateButton, awake, daysLeft, gist, live, md, short, snoozed, startOfToday, wakeLabel, type Els } from '../ui'
@@ -182,6 +183,7 @@ export function thingsTab($: Engine, ui: Els, s: Snapshot, opened: string[], fou
 
   return (
     <Box flexDirection="column" marginTop="sm">
+      {stylesSample(ui, s)}
       {linkProblem(s) !== null && <Text size="caption" color="warning" wrap="wrap">{T.tags.linkErrors(linkProblem(s)!)}</Text>}
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap="sm">
         <Text size="caption" dimColor>{w.summary(active.length, hot.length, done.length)}</Text>
