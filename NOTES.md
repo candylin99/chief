@@ -92,6 +92,11 @@ git merge upstream/main
 - 「照办」旁边多一个**先问清楚**：点开可以写想知道什么，不写就问「背景、为什么这么建议、不照办会怎样」。面板先 `chief ask explain Q --ask` 记下在问（卡上显示「在问清楚：…」），再发「chief：问题 #Q 先问清楚：…」给消息中心；消息中心转给提出问题的会话，会话回「chief 解释 #Q」，消息中心 `chief ask explain Q` 写回，卡上整段显示「解释」。问题一直开着，不算你的决定。
 - 改法：引擎 `engine/src/commands/things.ts` 的 `ask`；面板 `hooks/tabs/now.tsx` 的 askCard、`hooks/actions.ts` 的 `explainAsk`；说明 `skills/hub/SKILL.md`、`panel-commands.md`、`handoff.md`。
 
+### 0.6.1：不再重复提交（2026-11-25）
+
+- **面板点两下发两次**：面板上的按钮是往消息中心发一句「chief：…」，消息中心在忙时点了没动静，人会再点，以前每点一下都发一次（实际出现过「问进展」18 秒内两次、「重读规则」36 秒内两次）。现在同一句话两分钟内只发一次，第二下只提示「刚交给主会话了」（`hooks/actions.ts` 的 `tell` / `seenRecently`）。
+- **同一份回复稿交两次**：`chief reply add` 对同一条消息、一字不差（空白不算）的稿子只收一次；已经在待发出、发出去了、用户不发了、用户让重写的，原样再交都会被拒，报错说清怎么办（`engine/src/commands/reply.ts` 的 `sameText` / `duplicateWhy`）。消息中心的 `reply.md` 写了照报错办。
+
 ## 本机换源记录（2026-11-24）
 
 - `~/.claude/settings.json` → `extraKnownMarketplaces.chief.source.repo` = `candylin99/chief`（原 `jinjin99/chief`）。

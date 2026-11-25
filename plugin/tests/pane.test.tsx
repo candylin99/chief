@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
+import { seenRecently } from '../hooks/actions'
 import { askedAfter } from '../hooks/confirm'
 import { listify, splitAsk } from '../hooks/ui'
 import { inboxOf } from '../hooks/inbox'
@@ -448,6 +449,11 @@ test('要你定按事情合成一张卡：每个问题各自回，刚定的能�
   await ui.press({ key: 're13' })
   expect(runs.some(r => r.argv === 'ask reopen 13')).toBe(true)
   expect(prompts.at(-1)).toBe('chief：问题 #13 的回答撤回了')
+  // 连点两下：第二下不再交给主会话，只提示刚交过。
+  const before = prompts.length
+  await ui.press({ key: 're13' })
+  expect(prompts.length).toBe(before)
+  await want(ui, { type: 'Text', text: /刚交给主会话了/ })
   await ui.press({ key: 'dm12' })
   expect(runs.some(r => r.argv === 'ask dismiss 12')).toBe(true)
   expect(prompts.at(-1)).toBe('chief：问题 #12 不用问了')
@@ -687,6 +693,13 @@ test('单子、PR 连着半小时查不成才提醒', async ($, on) => {
   await ui.press({ key: 'tab-things' })
   await want(ui, { type: 'Text', text: /单子、PR 的状态半小时没查成：acli 没登录 Jira/ })
   await ui.unmount()
+})
+
+test('同一句话两分钟内只交一次，过了两分钟照常交', () => {
+  expect(seenRecently('chief：测试去重', 0)).toBe(false)
+  expect(seenRecently('chief：测试去重', 60_000)).toBe(true)
+  expect(seenRecently('chief：别的话', 60_000)).toBe(false)
+  expect(seenRecently('chief：测试去重', 200_000)).toBe(false)
 })
 
 test('引擎比插件新算装好了；插件新才更新', () => {

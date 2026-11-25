@@ -158,6 +158,23 @@ describe("cli", () => {
     chief(h, "reply", "drop", "1");
     expect(sendByYouFails(h, "1")).toContain("dropped");
   });
+
+  it("同一条消息、一字不差的稿子不重复交：说清是还在待发出、发过了、还是用户不发了", () => {
+    const h = home();
+    chief(h, "cursor");
+    writeFileSync(join(h, "events.jsonl"), `${JSON.stringify({ ...JSON.parse(event(1)), source: "slack", from: "Carol", title: "#dev", why: ["dm"], reply: { channel: "D1", ts: "1.0" } })}\n`);
+    writeFileSync(join(h, "drafts", "1.md"), "好的，我来看");
+    chief(h, "reply", "add", "--event", "1", "--file", join(h, "drafts", "1.md"));
+    // 只差空白也算同一段。
+    writeFileSync(join(h, "drafts", "2.md"), "  好的，我来看\n");
+    expect(chiefFails(h, "reply", "add", "--event", "1", "--file", join(h, "drafts", "2.md"))).toContain("已经在待发出里了");
+    chief(h, "reply", "drop", "1");
+    expect(chiefFails(h, "reply", "add", "--event", "1", "--file", join(h, "drafts", "1.md"))).toContain("用户已经不发了");
+    // 换了写法照常收，旧的待确认稿子被替掉。
+    writeFileSync(join(h, "drafts", "3.md"), "好的，下午看");
+    expect(JSON.parse(chief(h, "reply", "add", "--event", "1", "--file", join(h, "drafts", "3.md")))).toMatchObject({ id: 2 });
+    expect(JSON.parse(chief(h, "reply", "list")).filter((r: { status: string }) => r.status === "pending")).toHaveLength(1);
+  });
 });
 
 describe("事情和要你定的", () => {

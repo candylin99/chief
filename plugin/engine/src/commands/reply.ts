@@ -3,7 +3,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { archivedEvent } from "../archive";
-import { fail, flag, flags, num, oneLine, plainOnly, stdinRaw, stdinText } from "../args";
+import { fail, flag, flags, num, oneLine, oops, plainOnly, stdinRaw, stdinText } from "../args";
 import { loadConfig } from "../config";
 import { autoReason, prsOf, replyHash } from "../gate";
 import { MAX_IMAGES, takeImage, type ReplyImage } from "../images";
@@ -89,6 +89,9 @@ export async function reply(args: string[]): Promise<void> {
     plainOnly(body, "回复正文", { github: event.source === "github" });
     const images = imagesOf(imagePaths);
     const r = updateReplies((all) => {
+      // 同一条消息、一字不差的稿子不重复交：已经在待发出 / 发出去了 / 用户不发了 / 要你重写的，原样再交一份都是重复。
+      const same = all.items.find((o) => o.event === event.id && o.kind !== "message" && o.kind !== "approve" && sameText(o.body, body));
+      if (same) oops(duplicateWhy(same));
       // 同一条消息只留一份待确认的稿子：新稿子替掉旧的。
       for (const old of all.items) if (old.event === event.id && old.status === "pending") old.status = "dropped";
       const x: Reply = {
@@ -289,4 +292,28 @@ export async function reply(args: string[]): Promise<void> {
     return;
   }
   fail("chief reply add|approve|new|list|edit|edit-yours|queue|undo|drop|redo");
+}
+
+// 两份稿子算不算同一段话：去掉首尾空白、把连续的空白当成一个比。
+export function sameText(a: string, b: string): boolean {
+  const norm = (x: string) => x.replace(/\s+/g, " ").trim();
+  return norm(a) === norm(b);
+}
+
+// 同样的稿子又交了一次：按那份的状态说清为什么不收、该怎么办。
+export function duplicateWhy(r: Reply): string {
+  switch (r.status) {
+    case "pending":
+    case "queued":
+    case "sending":
+      return `这段稿子已经在待发出里了（回复 ${r.id}），不用再交一份；要改就 chief reply edit ${r.id}`;
+    case "sent":
+      return `这段话已经发出去了（回复 ${r.id}），不要再发一遍`;
+    case "failed":
+      return `这段稿子上次没发出去（回复 ${r.id}），要重发用 chief reply queue ${r.id}，不要再交一份`;
+    case "redo":
+      return `用户让重写这段稿子（回复 ${r.id}${r.feedback ? `，他说：${oneLine(r.feedback, 60)}` : ""}），原样交回不算重写，改了再交`;
+    default:
+      return `这段稿子用户已经不发了（回复 ${r.id}），原样再交还是会被拒；要回就换个写法，拿不准先问他`;
+  }
 }

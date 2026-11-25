@@ -88,7 +88,22 @@ export async function sendBasket($: Engine) {
 // 交给主会话（hub skill 认这几句话）。
 // 替你把一句话交给主会话。decision：这是你对「要你定」的拍板（照建议办、写了你的决定），算你亲口说的，
 // 里面要替你发的回复插件凭它核对；导入、问进展、重读规则这类不算。
+// 同一句话两分钟内只交给主会话一次：主会话在忙时点了没动静，人会再点一下，第二下不再交，只提示刚交过。
+const DEDUPE_MS = 120_000
+const recent = new Map<string, number>()
+
+export function seenRecently(text: string, now = Date.now()): boolean {
+  for (const [k, at] of recent) if (now - at >= DEDUPE_MS) recent.delete(k)
+  if (recent.has(text)) return true
+  recent.set(text, now)
+  return false
+}
+
 export async function tell($: Engine, text: string, label: string, decision = false) {
+  if (seenRecently(text)) {
+    await update($, note, () => stamp(t().act.already(label)))
+    return
+  }
   await update($, note, () => stamp(t().act.handed(label)))
   if (decision) await noteUserSaid($, `${label}（面板上点的）：${text}`)
   void $.prompt.submit({ text })
